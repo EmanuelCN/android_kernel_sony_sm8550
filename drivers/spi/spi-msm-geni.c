@@ -309,6 +309,13 @@ void geni_spi_se_dump_dbg_regs(struct geni_se *se, void __iomem *base,
 	geni_s_irq_en);
 }
 
+int geni_spi_get_master_irq(struct spi_device *spi_slv)
+{
+	struct spi_geni_master *mas = spi_master_get_devdata(spi_slv->master);
+
+	return mas->irq;
+}
+
 static void spi_slv_setup(struct spi_geni_master *mas);
 static void spi_master_setup(struct spi_geni_master *mas);
 static void geni_spi_dma_unprepare(struct spi_master *spi,
