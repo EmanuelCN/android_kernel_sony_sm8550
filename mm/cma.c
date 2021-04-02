@@ -36,6 +36,9 @@
 #include <linux/jiffies.h>
 #include <trace/events/cma.h>
 
+#undef CREATE_TRACE_POINTS
+#include <trace/hooks/mm.h>
+
 #include "cma.h"
 
 #undef CREATE_TRACE_POINTS
@@ -431,6 +434,9 @@ struct page *cma_alloc(struct cma *cma, unsigned long count,
 	int ret = -ENOMEM;
 	int num_attempts = 0;
 	int max_retries = 5;
+	s64 ts;
+
+	trace_android_vh_cma_alloc_start(&ts);
 
 	if (!cma || !cma->count || !cma->bitmap)
 		goto out;
@@ -532,6 +538,7 @@ struct page *cma_alloc(struct cma *cma, unsigned long count,
 
 	pr_debug("%s(): returned %p\n", __func__, page);
 out:
+	trace_android_vh_cma_alloc_finish(cma, page, count, align, gfp_mask, ts);
 	if (page) {
 		count_vm_event(CMA_ALLOC_SUCCESS);
 		cma_sysfs_account_success_pages(cma, count);
