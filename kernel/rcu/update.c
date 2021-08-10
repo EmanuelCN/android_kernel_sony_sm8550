@@ -60,7 +60,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(rcu_stall_warning);
 module_param(rcu_expedited, int, 0);
 module_param(rcu_normal, int, 0);
 static int rcu_normal_after_boot = IS_ENABLED(CONFIG_PREEMPT_RT);
-#ifndef CONFIG_PREEMPT_RT
+#if !defined(CONFIG_PREEMPT_RT) || defined(CONFIG_NO_HZ_FULL)
 module_param(rcu_normal_after_boot, int, 0);
 #endif
 #endif /* #ifndef CONFIG_TINY_RCU */
