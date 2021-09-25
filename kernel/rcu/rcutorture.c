@@ -352,6 +352,7 @@ struct rcu_torture_ops {
 	int can_boost;
 	int extendables;
 	int slow_gps;
+	int no_pi_lock;
 	const char *name;
 };
 
@@ -673,6 +674,7 @@ static struct rcu_torture_ops srcu_ops = {
 	.cb_barrier	= srcu_torture_barrier,
 	.stats		= srcu_torture_stats,
 	.irq_capable	= 1,
+	.no_pi_lock	= IS_ENABLED(CONFIG_TINY_SRCU),
 	.name		= "srcu"
 };
 
@@ -706,6 +708,7 @@ static struct rcu_torture_ops srcud_ops = {
 	.cb_barrier	= srcu_torture_barrier,
 	.stats		= srcu_torture_stats,
 	.irq_capable	= 1,
+	.no_pi_lock	= IS_ENABLED(CONFIG_TINY_SRCU),
 	.name		= "srcud"
 };
 
@@ -726,6 +729,7 @@ static struct rcu_torture_ops busted_srcud_ops = {
 	.cb_barrier	= srcu_torture_barrier,
 	.stats		= srcu_torture_stats,
 	.irq_capable	= 1,
+	.no_pi_lock	= IS_ENABLED(CONFIG_TINY_SRCU),
 	.extendables	= RCUTORTURE_MAX_EXTEND,
 	.name		= "busted_srcud"
 };
@@ -1476,8 +1480,9 @@ static void rcutorture_one_extend(int *readstate, int newstate,
 		idxold2 = 0;
 	}
 	if (statesold & RCUTORTURE_RDR_RCU_1) {
-		bool lockit = !statesnew && !(torture_random(trsp) & 0xffff);
+		bool lockit;
 
+		lockit = !cur_ops->no_pi_lock && !statesnew && !(torture_random(trsp) & 0xffff);
 		if (lockit)
 			raw_spin_lock_irqsave(&current->pi_lock, flags);
 		cur_ops->readunlock((idxold1 >> RCUTORTURE_RDR_SHIFT_1) & 0x1);
