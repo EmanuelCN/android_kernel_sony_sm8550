@@ -2665,8 +2665,7 @@ static void rcu_do_batch(struct rcu_data *rdp)
 		 * Stop only if limit reached and CPU has something to do.
 		 */
 		if (in_serving_softirq()) {
-			if (count >= bl && (need_resched() ||
-					(!is_idle_task(current) && !rcu_is_callbacks_kthread(rdp))))
+			if (count >= bl && (need_resched() || !is_idle_task(current)))
 				break;
 
 			/*
