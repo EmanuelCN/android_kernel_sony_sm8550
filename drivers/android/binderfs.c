@@ -626,6 +626,7 @@ static int init_binder_features(struct super_block *sb)
 	return 0;
 }
 
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 static int init_binder_logs(struct super_block *sb)
 {
 	struct dentry *binder_logs_root_dir, *dentry, *proc_log_dir;
@@ -662,6 +663,12 @@ static int init_binder_logs(struct super_block *sb)
 out:
 	return ret;
 }
+#else
+static inline int init_binder_logs(struct super_block *sb)
+{
+	return 0;
+}
+#endif
 
 static int binderfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {

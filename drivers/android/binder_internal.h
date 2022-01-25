@@ -71,7 +71,9 @@ struct binderfs_info {
 	kgid_t root_gid;
 	struct binderfs_mount_opts mount_opts;
 	int device_count;
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	struct dentry *proc_log_dir;
+#endif
 };
 
 extern const struct file_operations binder_fops;
@@ -112,6 +114,7 @@ static inline int __init init_binderfs(void)
 }
 #endif
 
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 struct binder_debugfs_entry {
 	const char *name;
 	umode_t mode;
@@ -126,6 +129,14 @@ extern const struct binder_debugfs_entry binder_debugfs_entries[];
 	     (entry)->name;			\
 	     (entry)++)
 
+struct binder_stats {
+        atomic_t br[_IOC_NR(BR_TRANSACTION_PENDING_FROZEN) + 1];
+        atomic_t bc[_IOC_NR(BC_REPLY_SG) + 1];
+        atomic_t obj_created[BINDER_STAT_COUNT];
+        atomic_t obj_deleted[BINDER_STAT_COUNT];
+};
+#endif
+
 enum binder_stat_types {
 	BINDER_STAT_PROC,
 	BINDER_STAT_THREAD,
@@ -135,13 +146,6 @@ enum binder_stat_types {
 	BINDER_STAT_TRANSACTION,
 	BINDER_STAT_TRANSACTION_COMPLETE,
 	BINDER_STAT_COUNT
-};
-
-struct binder_stats {
-	atomic_t br[_IOC_NR(BR_TRANSACTION_PENDING_FROZEN) + 1];
-	atomic_t bc[_IOC_NR(BC_REPLY_SG) + 1];
-	atomic_t obj_created[BINDER_STAT_COUNT];
-	atomic_t obj_deleted[BINDER_STAT_COUNT];
 };
 
 /**
@@ -469,7 +473,9 @@ struct binder_proc {
 	wait_queue_head_t freeze_wait;
 	struct dbitmap dmap;
 	struct list_head todo;
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	struct binder_stats stats;
+#endif
 	struct list_head delivered_death;
 	int max_threads;
 	int requested_threads;
@@ -609,7 +615,9 @@ struct binder_thread {
 	struct binder_error return_error;
 	struct binder_error reply_error;
 	wait_queue_head_t wait;
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	struct binder_stats stats;
+#endif
 	atomic_t tmp_ref;
 	bool is_dead;
 	struct task_struct *task;
