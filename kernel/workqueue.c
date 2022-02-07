@@ -2733,11 +2733,11 @@ static void __queue_delayed_work(int cpu, struct workqueue_struct *wq,
 	dwork->cpu = cpu;
 	timer->expires = jiffies + delay;
 
-	if (housekeeping_enabled(HK_FLAG_TIMER)) {
+	if (housekeeping_enabled(HK_TYPE_TIMER)) {
 		/* If the current cpu is a housekeeping cpu, use it. */
 		cpu = smp_processor_id();
-		if (!housekeeping_cpu(cpu, HK_FLAG_TIMER))
-			cpu = housekeeping_any_cpu(HK_FLAG_TIMER);
+		if (!housekeeping_cpu(cpu, HK_TYPE_TIMER))
+			cpu = housekeeping_any_cpu(HK_TYPE_TIMER);
 		add_timer_on(timer, cpu);
 	} else {
 		if (likely(cpu == WORK_CPU_UNBOUND))
@@ -7576,7 +7576,7 @@ int workqueue_unbound_exclude_cpumask(cpumask_var_t exclude_cpumask)
 	/*
 	 * If the operation fails, it will fall back to
 	 * wq_requested_unbound_cpumask which is initially set to
-	 * (HK_FLAG_WQ ∩ HK_FLAG_DOMAIN) house keeping mask and rewritten
+	 * (HK_TYPE_WQ ∩ HK_TYPE_DOMAIN) house keeping mask and rewritten
 	 * by any subsequent write to workqueue/cpumask sysfs file.
 	 */
 	if (!cpumask_andnot(cpumask, wq_requested_unbound_cpumask, exclude_cpumask))
@@ -8474,13 +8474,13 @@ void __init workqueue_init_early(void)
 
 	cpumask_copy(wq_online_cpumask, cpu_online_mask);
 	cpumask_copy(wq_unbound_cpumask, cpu_possible_mask);
-	restrict_unbound_cpumask("HK_FLAG_WQ", housekeeping_cpumask(HK_FLAG_WQ));
-	restrict_unbound_cpumask("HK_FLAG_DOMAIN", housekeeping_cpumask(HK_FLAG_DOMAIN));
+	restrict_unbound_cpumask("HK_TYPE_WQ", housekeeping_cpumask(HK_TYPE_WQ));
+	restrict_unbound_cpumask("HK_TYPE_DOMAIN", housekeeping_cpumask(HK_TYPE_DOMAIN));
 	if (!cpumask_empty(&wq_cmdline_cpumask))
 		restrict_unbound_cpumask("workqueue.unbound_cpus", &wq_cmdline_cpumask);
 	cpumask_copy(wq_requested_unbound_cpumask, wq_unbound_cpumask);
 	cpumask_andnot(wq_isolated_cpumask, cpu_possible_mask,
-						housekeeping_cpumask(HK_FLAG_DOMAIN));
+						housekeeping_cpumask(HK_TYPE_DOMAIN));
 
 	pwq_cache = KMEM_CACHE(pool_workqueue, SLAB_PANIC);
 
@@ -8491,7 +8491,7 @@ void __init workqueue_init_early(void)
 	 * If nohz_full is enabled, set power efficient workqueue as unbound.
 	 * This allows workqueue items to be moved to HK CPUs.
 	 */
-	if (housekeeping_enabled(HK_FLAG_TICK))
+	if (housekeeping_enabled(HK_TYPE_TICK))
 		wq_power_efficient = true;
 
 	/* initialize WQ_AFFN_SYSTEM pods */
