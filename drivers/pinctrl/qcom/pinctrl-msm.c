@@ -652,7 +652,7 @@ static int msm_gpio_direction_output(struct gpio_chip *chip, unsigned offset, in
 
 	val = msm_readl_relaxed_ctl(pctrl, g);
 	val |= BIT(g->oe_bit);
-	msm_writel_relaxed_ctl(val, pctrl, g);
+	msm_writel_ctl(val, pctrl, g);
 
 	raw_spin_unlock_irqrestore(&pctrl->lock, flags);
 
@@ -881,11 +881,11 @@ static void msm_gpio_update_dual_edge_pos(struct msm_pinctrl *pctrl,
 	unsigned pol;
 
 	do {
-		val = msm_readl_relaxed_io(pctrl, g) & BIT(g->in_bit);
+		val = msm_readl_io(pctrl, g) & BIT(g->in_bit);
 
 		pol = msm_readl_relaxed_intr_cfg(pctrl, g);
 		pol ^= BIT(g->intr_polarity_bit);
-		msm_writel_relaxed_intr_cfg(pol, pctrl, g);
+		msm_writel_intr_cfg(pol, pctrl, g);
 
 		val2 = msm_readl_relaxed_io(pctrl, g) & BIT(g->in_bit);
 		intstat = msm_readl_relaxed_intr_status(pctrl, g);
@@ -1009,7 +1009,7 @@ static void msm_gpio_irq_unmask(struct irq_data *d)
 	val = msm_readl_relaxed_intr_cfg(pctrl, g);
 	val |= BIT(g->intr_raw_status_bit);
 	val |= BIT(g->intr_enable_bit);
-	msm_writel_relaxed_intr_cfg(val, pctrl, g);
+	msm_writel_intr_cfg(val, pctrl, g);
 
 	set_bit(d->hwirq, pctrl->enabled_irqs);
 
@@ -1347,7 +1347,7 @@ static int msm_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 	} else {
 		BUG();
 	}
-	msm_writel_relaxed_intr_cfg(val, pctrl, g);
+	msm_writel_intr_cfg(val, pctrl, g);
 
 	/*
 	 * The first time we set RAW_STATUS_EN it could trigger an interrupt.
