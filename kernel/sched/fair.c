@@ -995,8 +995,6 @@ void init_entity_runnable_average(struct sched_entity *se)
 	/* when this task enqueue'ed, it will contribute to its cfs_rq's load_avg */
 }
 
-static void attach_entity_cfs_rq(struct sched_entity *se);
-
 /*
  * With new tasks being created, their initial util_avgs are extrapolated
  * based on the cfs_rq's current util_avg:
@@ -1060,10 +1058,6 @@ void post_init_entity_util_avg(struct task_struct *p)
 		se->avg.last_update_time = cfs_rq_clock_pelt(cfs_rq);
 		return;
 	}
-
-	/* Hook before this se's util is attached to cfs_rq's util */
-	trace_android_rvh_post_init_entity_util_avg(se);
-	attach_entity_cfs_rq(se);
 }
 
 #else /* !CONFIG_SMP */
@@ -4161,8 +4155,7 @@ static void migrate_se_pelt_lag(struct sched_entity *se) {}
  * @cfs_rq: cfs_rq to update
  *
  * The cfs_rq avg is the direct sum of all its entities (blocked and runnable)
- * avg. The immediate corollary is that all (fair) tasks must be attached, see
- * post_init_entity_util_avg().
+ * avg. The immediate corollary is that all (fair) tasks must be attached.
  *
  * cfs_rq->avg is used for task_h_load() and update_cfs_share() for example.
  *
@@ -4396,8 +4389,8 @@ static void remove_entity_load_avg(struct sched_entity *se)
 
 	/*
 	 * tasks cannot exit without having gone through wake_up_new_task() ->
-	 * post_init_entity_util_avg() which will have added things to the
-	 * cfs_rq, so we can remove unconditionally.
+	 * enqueue_task_fair() which will have added things to the cfs_rq,
+	 * so we can remove unconditionally.
 	 */
 
 	sync_entity_load_avg(se);
