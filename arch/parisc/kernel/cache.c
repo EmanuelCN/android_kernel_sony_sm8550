@@ -517,9 +517,13 @@ static inline unsigned long mm_total_size(struct mm_struct *mm)
 {
 	struct vm_area_struct *vma;
 	unsigned long usize = 0;
+	VMA_ITERATOR(vmi, mm, 0);
 
-	for (vma = mm->mmap; vma; vma = vma->vm_next)
+	for_each_vma(vmi, vma) {
+		if (usize >= parisc_cache_flush_threshold)
+			break;
 		usize += vma->vm_end - vma->vm_start;
+	}
 	return usize;
 }
 
@@ -545,6 +549,7 @@ void flush_cache_mm(struct mm_struct *mm)
 {
 	struct vm_area_struct *vma;
 	pgd_t *pgd;
+	VMA_ITERATOR(vmi, mm, 0);
 
 	/* Flushing the whole cache on each cpu takes forever on
 	   rp3440, etc.  So, avoid it if the mm isn't too big.  */
@@ -557,7 +562,7 @@ void flush_cache_mm(struct mm_struct *mm)
 	}
 
 	if (mm->context == mfsp(3)) {
-		for (vma = mm->mmap; vma; vma = vma->vm_next) {
+		for_each_vma(vmi, vma) {
 			flush_user_dcache_range_asm(vma->vm_start, vma->vm_end);
 			if (vma->vm_flags & VM_EXEC)
 				flush_user_icache_range_asm(vma->vm_start, vma->vm_end);
@@ -567,7 +572,7 @@ void flush_cache_mm(struct mm_struct *mm)
 	}
 
 	pgd = mm->pgd;
-	for (vma = mm->mmap; vma; vma = vma->vm_next) {
+	for_each_vma(vmi, vma) {
 		unsigned long addr;
 
 		for (addr = vma->vm_start; addr < vma->vm_end;
