@@ -23,6 +23,7 @@ static bool is_sched_lib_based_app(pid_t pid)
 	bool found = false;
 	struct task_struct *p;
 	struct mm_struct *mm;
+	struct vma_iterator vmi;
 
 	if (strnlen(sched_lib_name, LIB_PATH_LENGTH) == 0)
 		return false;
@@ -44,7 +45,8 @@ static bool is_sched_lib_based_app(pid_t pid)
 		goto put_task_struct;
 
 	down_read(&mm->mmap_lock);
-	for (vma = mm->mmap; vma ; vma = vma->vm_next) {
+	vma_iter_init(&vmi, mm, 0);
+	for_each_vma(vmi, vma) {
 		if (vma->vm_file && vma->vm_flags & VM_EXEC) {
 			name = d_path(&vma->vm_file->f_path,
 					path_buf, LIB_PATH_LENGTH);
