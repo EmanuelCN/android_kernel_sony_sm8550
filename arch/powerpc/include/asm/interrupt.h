@@ -162,7 +162,8 @@ static inline void interrupt_enter_prepare(struct pt_regs *regs, struct interrup
 		 * so avoid recursion.
 		 */
 		if (TRAP(regs) != INTERRUPT_PROGRAM) {
-			CT_WARN_ON(ct_state() != CONTEXT_KERNEL);
+			CT_WARN_ON(ct_state() != CONTEXT_KERNEL &&
+				   ct_state() != CONTEXT_IDLE);
 			BUG_ON(is_implicit_soft_masked(regs));
 		}
 #ifdef CONFIG_PPC_BOOK3S
