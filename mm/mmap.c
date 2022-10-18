@@ -2719,10 +2719,9 @@ cannot_expand:
 		if (error)
 			goto unmap_and_free_file_vma;
 
-		/* Can addr have changed??
-		 *
-		 * Answer: Yes, several device drivers can do it in their
-		 *         f_op->mmap method. -DaveM
+		/*
+		 * Expansion is handled above, merging is handled below.
+		 * Drivers should not alter the address of the VMA.
 		 */
 		WARN_ON_ONCE(addr != vma->vm_start);
 
@@ -2734,7 +2733,6 @@ cannot_expand:
 				!(vm_flags & VM_MAYWRITE) &&
 				(vma->vm_flags & VM_MAYWRITE));
 
-		addr = vma->vm_start;
 		mas_reset(&mas);
 
 		/*
@@ -2756,7 +2754,6 @@ cannot_expand:
 				vm_area_free(vma);
 				vma = merge;
 				/* Update vm_flags to pick up the change. */
-				addr = vma->vm_start;
 				vm_flags = vma->vm_flags;
 				mas_destroy(&mas);
 				goto file_expanded;
