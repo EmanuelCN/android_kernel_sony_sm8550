@@ -2849,7 +2849,7 @@ cannot_expand:
 
 	vma->vm_start = addr;
 	vma->vm_end = end;
-	vma->vm_flags = vm_flags;
+	vm_flags_init(vma, vm_flags);
 	vma->vm_page_prot = vm_get_page_prot(vm_flags);
 	vma->vm_pgoff = pgoff;
 
@@ -2959,7 +2959,7 @@ expanded:
 	 * then new mapped in-place (which must be aimed as
 	 * a completely new data area).
 	 */
-	vma->vm_flags |= VM_SOFTDIRTY;
+	vm_flags_set(vma, VM_SOFTDIRTY);
 
 	vma_set_page_prot(vma);
 
@@ -3212,7 +3212,7 @@ static int do_brk_flags(struct ma_state *mas, struct vm_area_struct *vma,
 			anon_vma_interval_tree_pre_update_vma(vma);
 		}
 		vma->vm_end = addr + len;
-		vma->vm_flags |= VM_SOFTDIRTY;
+		vm_flags_set(vma, VM_SOFTDIRTY);
 		mas_store_prealloc(mas, vma);
 
 		if (vma->anon_vma) {
@@ -3232,7 +3232,7 @@ static int do_brk_flags(struct ma_state *mas, struct vm_area_struct *vma,
 	vma->vm_start = addr;
 	vma->vm_end = addr + len;
 	vma->vm_pgoff = addr >> PAGE_SHIFT;
-	vma->vm_flags = flags;
+	vm_flags_init(vma, flags);
 	vma->vm_page_prot = vm_get_page_prot(flags);
 	mas_set_range(mas, vma->vm_start, addr + len - 1);
 	if (mas_store_gfp(mas, vma, GFP_KERNEL))
@@ -3245,7 +3245,7 @@ out:
 	mm->data_vm += len >> PAGE_SHIFT;
 	if (flags & VM_LOCKED)
 		mm->locked_vm += (len >> PAGE_SHIFT);
-	vma->vm_flags |= VM_SOFTDIRTY;
+	vm_flags_set(vma, VM_SOFTDIRTY);
 	validate_mm(mm);
 	return 0;
 
@@ -3672,7 +3672,7 @@ static struct vm_area_struct *__install_special_mapping(
 	vma->vm_start = addr;
 	vma->vm_end = addr + len;
 
-	vma->vm_flags = vm_flags | mm->def_flags | VM_DONTEXPAND | VM_SOFTDIRTY;
+	vm_flags_init(vma, vm_flags | mm->def_flags | VM_DONTEXPAND | VM_SOFTDIRTY);
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 
 	vma->vm_ops = ops;

@@ -117,8 +117,22 @@ void vma_set_pad_pages(struct vm_area_struct *vma,
 	if (!is_pgsize_migration_enabled())
 		return;
 
-	vma->vm_flags &= ~VM_PAD_MASK;
-	vma->vm_flags |= (nr_pages << VM_PAD_SHIFT);
+	/*
+	 * Usually to modify vm_flags we need to take exclusive mmap_lock but here
+	 * only have the lock in read mode, to avoid all DONTNEED/DONTNEED_LOCKED
+	 * calls needing the write lock.
+	 *
+	 * A race to the flags update can only happen with another MADV_DONTNEED on
+	 * the same process and same range (VMA).
+	 *
+	 * In practice, this specific scenario is not possible because the action that
+	 * could cause it is usually performed at most once per VMA and only by the
+	 * dynamic linker.
+	 *
+	 * Forego protection for this case, to avoid penalties in the common cases.
+	 */
+	vm_flags_init(vma, (vma->vm_flags & ~VM_PAD_MASK) |
+			   (nr_pages << VM_PAD_SHIFT));
 }
 
 unsigned long vma_pad_pages(struct vm_area_struct *vma)
@@ -269,7 +283,7 @@ struct vm_area_struct *get_pad_vma(struct vm_area_struct *vma)
 
 	pad = kzalloc(sizeof(struct vm_area_struct), GFP_KERNEL);
 
-	*pad = *vma;
+	memcpy(pad, vma, sizeof(struct vm_area_struct));
 
 	/* Remove file */
 	pad->vm_file = NULL;
@@ -280,11 +294,14 @@ struct vm_area_struct *get_pad_vma(struct vm_area_struct *vma)
 	/* Adjust the start to begin at the start of the padding section */
 	pad->vm_start = VMA_PAD_START(pad);
 
+	/*
+	 * The below modifications to vm_flags don't need mmap write lock,
+	 * since, pad does not belong to the VMA tree.
+	 */
 	/* Make the pad vma PROT_NONE */
-	pad->vm_flags &= ~(VM_READ|VM_WRITE|VM_EXEC);
-
+	vm_flags_init(pad, pad->vm_flags & ~(VM_READ|VM_WRITE|VM_EXEC));
 	/* Remove padding bits */
-	pad->vm_flags &= ~VM_PAD_MASK;
+	vm_flags_init(pad, pad->vm_flags & ~VM_PAD_MASK);
 
 	return pad;
 }
@@ -302,7 +319,7 @@ struct vm_area_struct *get_data_vma(struct vm_area_struct *vma)
 
 	data = kzalloc(sizeof(struct vm_area_struct), GFP_KERNEL);
 
-	*data = *vma;
+	memcpy(data, vma, sizeof(struct vm_area_struct));
 
 	/* Adjust the end to the start of the padding section */
 	data->vm_end = VMA_PAD_START(data);
