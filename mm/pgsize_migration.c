@@ -131,8 +131,8 @@ void vma_set_pad_pages(struct vm_area_struct *vma,
 	 *
 	 * Forego protection for this case, to avoid penalties in the common cases.
 	 */
-	vm_flags_init(vma, (vma->vm_flags & ~VM_PAD_MASK) |
-			   (nr_pages << VM_PAD_SHIFT));
+	__vm_flags_mod(vma, 0, VM_PAD_MASK);
+	__vm_flags_mod(vma, nr_pages << VM_PAD_SHIFT, 0);
 }
 
 unsigned long vma_pad_pages(struct vm_area_struct *vma)
@@ -299,9 +299,9 @@ struct vm_area_struct *get_pad_vma(struct vm_area_struct *vma)
 	 * since, pad does not belong to the VMA tree.
 	 */
 	/* Make the pad vma PROT_NONE */
-	vm_flags_init(pad, pad->vm_flags & ~(VM_READ|VM_WRITE|VM_EXEC));
+	__vm_flags_mod(pad, 0, VM_READ|VM_WRITE|VM_EXEC);
 	/* Remove padding bits */
-	vm_flags_init(pad, pad->vm_flags & ~VM_PAD_MASK);
+	__vm_flags_mod(pad, 0, VM_PAD_MASK);
 
 	return pad;
 }
