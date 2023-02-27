@@ -2439,7 +2439,8 @@ static void unmap_region(struct mm_struct *mm, struct maple_tree *mt,
 	} while ((cur_vma = mas_find(&mas, end - 1)) != NULL);
 
 	free_pgtables(&tlb, mt, vma, prev ? prev->vm_end : FIRST_USER_ADDRESS,
-				 next ? next->vm_start : USER_PGTABLES_CEILING);
+				 next ? next->vm_start : USER_PGTABLES_CEILING,
+		      mm_wr_locked);
 	tlb_finish_mmu(&tlb);
 }
 
@@ -3410,7 +3411,7 @@ void exit_mmap(struct mm_struct *mm)
 	trace_android_vh_swapmem_gather_finish(mm);
 	mt_clear_in_rcu(&mm->mm_mt);
 	free_pgtables(&tlb, &mm->mm_mt, vma, FIRST_USER_ADDRESS,
-		      USER_PGTABLES_CEILING);
+		      USER_PGTABLES_CEILING, true);
 	tlb_finish_mmu(&tlb);
 
 	/*
