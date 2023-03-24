@@ -259,7 +259,6 @@ config X86
 	select RTC_LIB
 	select RTC_MC146818_LIB
 	select SPARSE_IRQ
-	select SRCU
 	select STACK_VALIDATION			if HAVE_STACK_VALIDATION && (HAVE_STATIC_CALL_INLINE || RETPOLINE)
 	select SYSCTL_EXCEPTION_TRACE
 	select THREAD_INFO_IN_TASK
@@ -1898,7 +1897,6 @@ config X86_SGX
 	depends on X86_64 && CPU_SUP_INTEL
 	depends on CRYPTO=y
 	depends on CRYPTO_SHA256=y
-	select SRCU
 	select MMU_NOTIFIER
 	select NUMA_KEEP_MEMINFO if NUMA
 	help
