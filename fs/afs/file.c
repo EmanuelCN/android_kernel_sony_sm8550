@@ -15,6 +15,7 @@
 #include <linux/task_io_accounting_ops.h>
 #include <linux/mm.h>
 #include <linux/netfs.h>
+#include <linux/sched/signal.h>
 #include "internal.h"
 
 static int afs_file_mmap(struct file *file, struct vm_area_struct *vma);
@@ -27,6 +28,7 @@ static void afs_readahead(struct readahead_control *ractl);
 static ssize_t afs_file_read_iter(struct kiocb *iocb, struct iov_iter *iter);
 static void afs_vm_open(struct vm_area_struct *area);
 static void afs_vm_close(struct vm_area_struct *area);
+static vm_fault_t afs_vm_fault(struct vm_fault *vmf);
 static vm_fault_t afs_vm_map_pages(struct vm_fault *vmf, pgoff_t start_pgoff, pgoff_t end_pgoff);
 
 const struct file_operations afs_file_operations = {
@@ -65,7 +67,7 @@ const struct address_space_operations afs_fs_aops = {
 static const struct vm_operations_struct afs_vm_ops = {
 	.open		= afs_vm_open,
 	.close		= afs_vm_close,
-	.fault		= filemap_fault,
+	.fault		= afs_vm_fault,
 	.map_pages	= afs_vm_map_pages,
 	.page_mkwrite	= afs_page_mkwrite,
 };
@@ -556,23 +558,45 @@ static void afs_vm_close(struct vm_area_struct *vma)
 	afs_drop_open_mmap(AFS_FS_I(file_inode(vma->vm_file)));
 }
 
-static vm_fault_t afs_vm_map_pages(struct vm_fault *vmf, pgoff_t start_pgoff, pgoff_t end_pgoff)
+static vm_fault_t afs_vm_fault(struct vm_fault *vmf)
 {
-	struct afs_vnode *vnode = AFS_FS_I(file_inode(vmf->vma->vm_file));
-	struct afs_file *af = vmf->vma->vm_file->private_data;
+	struct file *file = vmf->vma->vm_file;
+	struct afs_vnode *vnode = AFS_FS_I(file_inode(file));
+	struct afs_file *af = file->private_data;
+
+	if (vmf->flags & FAULT_FLAG_RETRY_NOWAIT) {
+		if (!afs_pagecache_valid(vnode))
+			return VM_FAULT_RETRY;
+		return filemap_fault(vmf);
+	}
 
 	switch (afs_validate(vnode, af->key)) {
 	case 0:
-		return filemap_map_pages(vmf, start_pgoff, end_pgoff);
+		return filemap_fault(vmf);
 	case -ENOMEM:
 		return VM_FAULT_OOM;
 	case -EINTR:
 	case -ERESTARTSYS:
-		return VM_FAULT_RETRY;
-	case -ESTALE:
+		/* Retry only if the caller can stop to handle the signal. */
+		if ((vmf->flags & FAULT_FLAG_ALLOW_RETRY) &&
+		    (fatal_signal_pending(current) ||
+		     ((vmf->flags & FAULT_FLAG_USER) && signal_pending(current)))) {
+			release_fault_lock(vmf);
+			return VM_FAULT_RETRY;
+		}
+		return VM_FAULT_SIGBUS;
 	default:
 		return VM_FAULT_SIGBUS;
 	}
+}
+
+static vm_fault_t afs_vm_map_pages(struct vm_fault *vmf, pgoff_t start_pgoff, pgoff_t end_pgoff)
+{
+	struct afs_vnode *vnode = AFS_FS_I(file_inode(vmf->vma->vm_file));
+
+	if (afs_pagecache_valid(vnode))
+		return filemap_map_pages(vmf, start_pgoff, end_pgoff);
+	return 0;
 }
 
 static ssize_t afs_file_read_iter(struct kiocb *iocb, struct iov_iter *iter)

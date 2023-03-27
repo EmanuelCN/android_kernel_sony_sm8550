@@ -655,6 +655,21 @@ bool afs_check_validity(struct afs_vnode *vnode)
 }
 
 /*
+ * Returns true if the pagecache is still valid. Does not sleep.
+ */
+bool afs_pagecache_valid(struct afs_vnode *vnode)
+{
+	if (unlikely(test_bit(AFS_VNODE_DELETED, &vnode->flags))) {
+		if (vnode->vfs_inode.i_nlink)
+			clear_nlink(&vnode->vfs_inode);
+		return true;
+	}
+
+	return test_bit(AFS_VNODE_CB_PROMISED, &vnode->flags) &&
+		afs_check_validity(vnode);
+}
+
+/*
  * validate a vnode/inode
  * - there are several things we need to check
  *   - parent dir data changes (rm, rmdir, rename, mkdir, create, link,
@@ -671,14 +686,7 @@ int afs_validate(struct afs_vnode *vnode, struct key *key)
 	       vnode->fid.vid, vnode->fid.vnode, vnode->flags,
 	       key_serial(key));
 
-	if (unlikely(test_bit(AFS_VNODE_DELETED, &vnode->flags))) {
-		if (vnode->vfs_inode.i_nlink)
-			clear_nlink(&vnode->vfs_inode);
-		goto valid;
-	}
-
-	if (test_bit(AFS_VNODE_CB_PROMISED, &vnode->flags) &&
-	    afs_check_validity(vnode))
+	if (afs_pagecache_valid(vnode))
 		goto valid;
 
 	down_write(&vnode->validate_lock);
