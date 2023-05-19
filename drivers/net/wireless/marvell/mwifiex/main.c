@@ -1522,16 +1522,16 @@ mwifiex_reinit_sw(struct mwifiex_adapter *adapter)
 		adapter->rx_work_enabled = true;
 
 	adapter->workqueue =
-		alloc_ordered_workqueue("MWIFIEX_WORK_QUEUE",
-				WQ_HIGHPRI | WQ_MEM_RECLAIM);
+		alloc_workqueue("MWIFIEX_WORK_QUEUE",
+				WQ_HIGHPRI | WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
 	if (!adapter->workqueue)
 		goto err_kmalloc;
 
 	INIT_WORK(&adapter->main_work, mwifiex_main_work_queue);
 
 	if (adapter->rx_work_enabled) {
-		adapter->rx_workqueue = alloc_ordered_workqueue("MWIFIEX_RX_WORK_QUEUE",
-							WQ_HIGHPRI | WQ_MEM_RECLAIM);
+		adapter->rx_workqueue = alloc_workqueue("MWIFIEX_RX_WORK_QUEUE",
+							WQ_HIGHPRI | WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
 		if (!adapter->rx_workqueue)
 			goto err_kmalloc;
 		INIT_WORK(&adapter->rx_work, mwifiex_rx_work_queue);
@@ -1675,16 +1675,16 @@ mwifiex_add_card(void *card, struct completion *fw_done,
 		adapter->rx_work_enabled = true;
 
 	adapter->workqueue =
-		alloc_ordered_workqueue("MWIFIEX_WORK_QUEUE",
-				WQ_HIGHPRI | WQ_MEM_RECLAIM);
+		alloc_workqueue("MWIFIEX_WORK_QUEUE",
+				WQ_HIGHPRI | WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
 	if (!adapter->workqueue)
 		goto err_kmalloc;
 
 	INIT_WORK(&adapter->main_work, mwifiex_main_work_queue);
 
 	if (adapter->rx_work_enabled) {
-		adapter->rx_workqueue = alloc_ordered_workqueue("MWIFIEX_RX_WORK_QUEUE",
-							WQ_HIGHPRI | WQ_MEM_RECLAIM);
+		adapter->rx_workqueue = alloc_workqueue("MWIFIEX_RX_WORK_QUEUE",
+							WQ_HIGHPRI | WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
 		if (!adapter->rx_workqueue)
 			goto err_kmalloc;
 
