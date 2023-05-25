@@ -79,7 +79,8 @@ bool btrfs_workqueue_normal_congested(const struct btrfs_workqueue *wq)
 
 static struct __btrfs_workqueue *
 __btrfs_alloc_workqueue(struct btrfs_fs_info *fs_info, const char *name,
-			unsigned int flags, int limit_active, int thresh)
+			unsigned int flags, int limit_active, int thresh,
+			bool ordered)
 {
 	struct __btrfs_workqueue *ret = kzalloc(sizeof(*ret), GFP_KERNEL);
 
@@ -105,7 +106,9 @@ __btrfs_alloc_workqueue(struct btrfs_fs_info *fs_info, const char *name,
 		ret->thresh = thresh;
 	}
 
-	if (flags & WQ_HIGHPRI)
+	if (ordered)
+		ret->normal_wq = alloc_ordered_workqueue("btrfs-%s", flags, name);
+	else if (flags & WQ_HIGHPRI)
 		ret->normal_wq = alloc_workqueue("btrfs-%s-high", flags,
 						 ret->current_active, name);
 	else
@@ -139,7 +142,7 @@ struct btrfs_workqueue *btrfs_alloc_workqueue(struct btrfs_fs_info *fs_info,
 
 	ret->normal = __btrfs_alloc_workqueue(fs_info, name,
 					      flags & ~WQ_HIGHPRI,
-					      limit_active, thresh);
+					      limit_active, thresh, false);
 	if (!ret->normal) {
 		kfree(ret);
 		return NULL;
@@ -147,7 +150,7 @@ struct btrfs_workqueue *btrfs_alloc_workqueue(struct btrfs_fs_info *fs_info,
 
 	if (flags & WQ_HIGHPRI) {
 		ret->high = __btrfs_alloc_workqueue(fs_info, name, flags,
-						    limit_active, thresh);
+						    limit_active, thresh, false);
 		if (!ret->high) {
 			__btrfs_destroy_workqueue(ret->normal);
 			kfree(ret);
@@ -155,6 +158,23 @@ struct btrfs_workqueue *btrfs_alloc_workqueue(struct btrfs_fs_info *fs_info,
 		}
 	}
 	return ret;
+}
+
+struct btrfs_workqueue *btrfs_alloc_ordered_workqueue(struct btrfs_fs_info *fs_info,
+						      const char *name,
+						      unsigned int flags)
+{
+	struct btrfs_workqueue *wq = kzalloc(sizeof(*wq), GFP_KERNEL);
+
+	if (!wq)
+		return NULL;
+
+	wq->normal = __btrfs_alloc_workqueue(fs_info, name, flags, 1, 1, true);
+	if (!wq->normal) {
+		kfree(wq);
+		return NULL;
+	}
+	return wq;
 }
 
 /*
