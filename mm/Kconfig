@@ -969,6 +969,10 @@ config MEMFD_ASHMEM_SHIM
 
 	  Unless you are running Android, say N.
 
+config LOCK_MM_AND_FIND_VMA
+	bool
+	depends on !STACK_GROWSUP
+
 source "mm/damon/Kconfig"
 
 endmenu
