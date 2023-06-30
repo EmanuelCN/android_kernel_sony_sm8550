@@ -3535,6 +3535,7 @@ static vm_fault_t remove_device_exclusive_entry(struct vm_fault *vmf)
 	struct page *page = vmf->page;
 	struct vm_area_struct *vma = vmf->vma;
 	struct mmu_notifier_range range;
+	vm_fault_t ret;
 
 	/*
 	 * We need a reference to lock the page because we don't hold
@@ -3547,9 +3548,10 @@ static vm_fault_t remove_device_exclusive_entry(struct vm_fault *vmf)
 	if (!get_page_unless_zero(page))
 		return 0;
 
-	if (!lock_page_or_retry(page, vma->vm_mm, vmf->flags)) {
+	ret = lock_page_or_retry(page, vmf);
+	if (ret) {
 		put_page(page);
-		return VM_FAULT_RETRY;
+		return ret;
 	}
 	mmu_notifier_range_init_owner(&range, MMU_NOTIFY_EXCLUSIVE, 0, vma,
 				vma->vm_mm, vmf->address & PAGE_MASK,
@@ -3584,7 +3586,6 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	struct swap_info_struct *si = NULL;
 	swp_entry_t entry;
 	pte_t pte;
-	int locked;
 	int exclusive = 0;
 	vm_fault_t ret = 0;
 	void *shadow = NULL;
@@ -3690,13 +3691,11 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 		goto out_release;
 	}
 
-	locked = lock_page_or_retry(page, vma->vm_mm, vmf->flags);
+	ret |= lock_page_or_retry(page, vmf);
 
 	delayacct_clear_flag(current, DELAYACCT_PF_SWAPIN);
-	if (!locked) {
-		ret |= VM_FAULT_RETRY;
+	if (ret & VM_FAULT_RETRY)
 		goto out_release;
-	}
 
 	/*
 	 * Make sure try_to_free_swap or reuse_swap_page or swapoff did not
