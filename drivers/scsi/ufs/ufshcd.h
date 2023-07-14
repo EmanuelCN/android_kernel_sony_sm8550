@@ -44,6 +44,7 @@
 #include <scsi/scsi_dbg.h>
 #include <scsi/scsi_eh.h>
 #include <linux/android_kabi.h>
+#include <linux/pm_qos.h>
 
 #include "ufs.h"
 #include "ufs_quirks.h"
@@ -988,6 +989,15 @@ struct ufs_hba {
 #endif
 	u32 luns_avail;
 	bool complete_put;
+
+	struct {
+		struct pm_qos_request req;
+		struct work_struct get_work;
+		struct work_struct put_work;
+		struct mutex lock;
+		atomic_t count;
+		bool active;
+	} pm_qos;
 
 	ANDROID_VENDOR_DATA(1);
 	ANDROID_OEM_DATA_ARRAY(1, 2);
