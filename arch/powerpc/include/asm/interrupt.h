@@ -151,7 +151,7 @@ static inline void interrupt_enter_prepare(struct pt_regs *regs, struct interrup
 	local_paca->irq_happened |= PACA_IRQ_HARD_DIS;
 
 	if (user_mode(regs)) {
-		CT_WARN_ON(ct_state() != CONTEXT_USER);
+		CT_WARN_ON(ct_state() != CT_STATE_USER);
 		user_exit_irqoff();
 
 		account_cpu_user_entry();
@@ -162,8 +162,8 @@ static inline void interrupt_enter_prepare(struct pt_regs *regs, struct interrup
 		 * so avoid recursion.
 		 */
 		if (TRAP(regs) != INTERRUPT_PROGRAM) {
-			CT_WARN_ON(ct_state() != CONTEXT_KERNEL &&
-				   ct_state() != CONTEXT_IDLE);
+			CT_WARN_ON(ct_state() != CT_STATE_KERNEL &&
+				   ct_state() != CT_STATE_IDLE);
 			BUG_ON(is_implicit_soft_masked(regs));
 		}
 #ifdef CONFIG_PPC_BOOK3S

@@ -97,7 +97,7 @@ static __always_inline int syscall_32_enter(struct pt_regs *regs)
 }
 
 /*
- * Invoke a 32-bit syscall.  Called with IRQs on in CONTEXT_KERNEL.
+ * Invoke a 32-bit syscall.  Called with IRQs on in CT_STATE_KERNEL.
  */
 static __always_inline void do_syscall_32_irqs_on(struct pt_regs *regs, int nr)
 {
