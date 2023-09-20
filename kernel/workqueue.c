@@ -4495,6 +4495,12 @@ int apply_workqueue_attrs(struct workqueue_struct *wq,
 	ret = apply_workqueue_attrs_locked(wq, attrs);
 	mutex_unlock(&wq_pool_mutex);
 
+	/* for unbound pwq, flush the pwq_release_worker ensures that the
+	 * pwq_release_workfn() completes before calling kfree(wq).
+	 */
+	if (ret)
+		kthread_flush_worker(pwq_release_worker);
+
 	return ret;
 }
 EXPORT_SYMBOL_GPL(apply_workqueue_attrs);
