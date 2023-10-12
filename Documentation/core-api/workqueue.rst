@@ -411,7 +411,7 @@ The default affinity scope can be changed with the module parameter
 scope can be changed using ``apply_workqueue_attrs()``.
 
 If ``WQ_SYSFS`` is set, the workqueue will have the following affinity scope
-related interface files under its ``/sys/devices/virtual/WQ_NAME/``
+related interface files under its ``/sys/devices/virtual/workqueue/WQ_NAME/``
 directory.
 
 ``affinity_scope``
