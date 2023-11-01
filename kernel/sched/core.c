@@ -4190,9 +4190,6 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 #endif
 	}
 
-	if (READ_ONCE(p->__state) & TASK_UNINTERRUPTIBLE)
-		trace_sched_blocked_reason(p);
-
 #ifdef CONFIG_SMP
 	/*
 	 * We're doing the wakeup (@success == 1), they did a dequeue (p->on_rq
