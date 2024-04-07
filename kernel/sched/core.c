@@ -59,6 +59,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(sched_stat_blocked);
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 DEFINE_PER_CPU(struct rnd_state, sched_rnd_state);
 EXPORT_SYMBOL_GPL(runqueues);
+DEFINE_PER_CPU_READ_MOSTLY(u64, dvfs_update_delay);
 
 #ifdef CONFIG_SCHED_DEBUG
 /*

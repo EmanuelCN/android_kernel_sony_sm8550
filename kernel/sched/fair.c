@@ -9653,6 +9653,8 @@ static void update_cpu_capacity(struct sched_domain *sd, int cpu)
 	if (!capacity)
 		capacity = 1;
 
+	rq->cpu_capacity = capacity;
+
 	/*
 	 * Calculate the util at which the task must be considered a misfit.
 	 *
