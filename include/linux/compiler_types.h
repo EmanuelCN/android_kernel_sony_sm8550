@@ -199,7 +199,14 @@ struct ftrace_likely_data {
 
 #define __no_kcsan __no_sanitize_thread
 #ifdef __SANITIZE_THREAD__
+/*
+ * Qualify variables whose data-racy accesses should be ignored by KCSAN.
+ * KCSAN treats the resulting volatile accesses as marked.
+ */
+# define __data_racy volatile
 # define __no_sanitize_or_inline __no_kcsan notrace __maybe_unused
+#else
+# define __data_racy
 #endif
 
 #ifndef __no_sanitize_or_inline

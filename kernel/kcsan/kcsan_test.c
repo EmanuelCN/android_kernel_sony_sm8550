@@ -260,6 +260,7 @@ static long test_array[3 * PAGE_SIZE / sizeof(long)];
 static struct {
 	long val[8];
 } test_struct;
+static long __data_racy test_data_racy;
 static DEFINE_SEQLOCK(test_seqlock);
 
 /*
@@ -301,6 +302,8 @@ __no_kcsan
 static noinline void test_kernel_write_uninstrumented(void) { test_var++; }
 
 static noinline void test_kernel_data_race(void) { data_race(test_var++); }
+
+static noinline void test_kernel_data_racy_qualifier(void) { test_data_racy++; }
 
 static noinline void test_kernel_assert_writer(void)
 {
@@ -721,6 +724,19 @@ static void test_data_race(struct kunit *test)
 	KUNIT_EXPECT_FALSE(test, match_never);
 }
 
+/* Test the __data_racy type qualifier. */
+__no_kcsan
+static void test_data_racy_qualifier(struct kunit *test)
+{
+	bool match_never = false;
+
+	begin_test_checks(test_kernel_data_racy_qualifier, test_kernel_data_racy_qualifier);
+	do {
+		match_never = report_available();
+	} while (!end_test_checks(match_never));
+	KUNIT_EXPECT_FALSE(test, match_never);
+}
+
 __no_kcsan
 static void test_assert_exclusive_writer(struct kunit *test)
 {
@@ -1050,6 +1066,7 @@ static struct kunit_case kcsan_test_cases[] = {
 	KCSAN_KUNIT_CASE(test_read_plain_atomic_rmw),
 	KCSAN_KUNIT_CASE(test_zero_size_access),
 	KCSAN_KUNIT_CASE(test_data_race),
+	KCSAN_KUNIT_CASE(test_data_racy_qualifier),
 	KCSAN_KUNIT_CASE(test_assert_exclusive_writer),
 	KCSAN_KUNIT_CASE(test_assert_exclusive_access),
 	KCSAN_KUNIT_CASE(test_assert_exclusive_access_writer),
