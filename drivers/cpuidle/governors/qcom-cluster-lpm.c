@@ -375,14 +375,11 @@ ktime_t get_cluster_sleep_time(struct lpm_cluster *cluster_gov)
 static void update_cluster_next_wakeup(struct lpm_cluster *cluster_gov)
 {
 	cluster_gov->next_wakeup = get_cluster_sleep_time(cluster_gov);
-	if (cluster_gov->pred_wakeup) {
-		if (ktime_before(cluster_gov->pred_wakeup,
-				cluster_gov->next_wakeup))
-			cluster_gov->next_wakeup = cluster_gov->pred_wakeup;
-	}
 
-	dev_pm_genpd_set_next_wakeup(cluster_gov->dev,
-				     cluster_gov->next_wakeup);
+	if (ktime_before(cluster_gov->next_wakeup, ktime_get()))
+		cluster_gov->next_wakeup = KTIME_MAX;
+
+	dev_pm_genpd_set_next_wakeup(cluster_gov->dev, cluster_gov->next_wakeup);
 }
 
 /**
