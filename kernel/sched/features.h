@@ -8,6 +8,10 @@
 #define SCHED_FEAT_PLACE_LAG 0
 #define SCHED_FEAT_PLACE_DEADLINE_INITIAL 0
 #define SCHED_FEAT_RUN_TO_PARITY 0
+/*
+ * Preserve relative virtual deadline on 'migration'.
+ */
+#define SCHED_FEAT_PLACE_REL_DEADLINE 1
 
 /*
  * Prefer to schedule the task we woke last (assuming it failed
