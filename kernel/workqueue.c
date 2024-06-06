@@ -5935,15 +5935,16 @@ static int alloc_and_link_pwqs(struct workqueue_struct *wq)
 		goto enomem;
 
 	if (!(wq->flags & WQ_UNBOUND)) {
+		struct worker_pool __percpu *pools;
+
+		if (wq->flags & WQ_BH)
+			pools = bh_worker_pools;
+		else
+			pools = cpu_worker_pools;
+
 		for_each_possible_cpu(cpu) {
 			struct pool_workqueue *pwq;
-			struct worker_pool __percpu *pools;
 			struct worker_pool *pool;
-
-			if (wq->flags & WQ_BH)
-				pools = bh_worker_pools;
-			else
-				pools = cpu_worker_pools;
 
 			pool = &(per_cpu_ptr(pools, cpu)[highpri]);
 
