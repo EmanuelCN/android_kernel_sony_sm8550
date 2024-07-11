@@ -75,7 +75,7 @@ nfsd_file_schedule_laundrette(void)
 	if (count == 0 || test_bit(NFSD_FILE_SHUTDOWN, &nfsd_file_lru_flags))
 		return;
 
-	queue_delayed_work(system_wq, &nfsd_filecache_laundrette,
+	queue_delayed_work(system_unbound_wq, &nfsd_filecache_laundrette,
 			NFSD_LAUNDRETTE_DELAY);
 }
 
