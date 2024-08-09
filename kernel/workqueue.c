@@ -5206,9 +5206,15 @@ static int init_worker_pool(struct worker_pool *pool)
 }
 
 #ifdef CONFIG_LOCKDEP
-static void wq_init_lockdep(struct workqueue_struct *wq)
+static void wq_init_lockdep(struct workqueue_struct *wq,
+			    struct lockdep_map *lockdep_map)
 {
 	char *lock_name;
+
+	if (lockdep_map) {
+		wq->lockdep_map = lockdep_map;
+		return;
+	}
 
 	lockdep_register_key(&wq->key);
 	lock_name = kasprintf(GFP_KERNEL, "%s%s", "(wq_completion)", wq->name);
@@ -5222,16 +5228,23 @@ static void wq_init_lockdep(struct workqueue_struct *wq)
 
 static void wq_unregister_lockdep(struct workqueue_struct *wq)
 {
+	if (wq->lockdep_map != &wq->__lockdep_map)
+		return;
+
 	lockdep_unregister_key(&wq->key);
 }
 
 static void wq_free_lockdep(struct workqueue_struct *wq)
 {
+	if (wq->lockdep_map != &wq->__lockdep_map)
+		return;
+
 	if (wq->lock_name != wq->name)
 		kfree(wq->lock_name);
 }
 #else
-static void wq_init_lockdep(struct workqueue_struct *wq)
+static void wq_init_lockdep(struct workqueue_struct *wq,
+			    struct lockdep_map *lockdep_map)
 {
 }
 
@@ -6160,7 +6173,8 @@ static void wq_adjust_max_active(struct workqueue_struct *wq)
 __printf(1, 0)
 static struct workqueue_struct *alloc_workqueue_va(const char *fmt,
 						   unsigned int flags,
-						   int max_active, va_list args)
+						   int max_active, va_list args,
+						   struct lockdep_map *lockdep_map)
 {
 	struct workqueue_struct *wq;
 	size_t wq_size;
@@ -6226,7 +6240,7 @@ static struct workqueue_struct *alloc_workqueue_va(const char *fmt,
 	INIT_LIST_HEAD(&wq->flusher_overflow);
 	INIT_LIST_HEAD(&wq->maydays);
 
-	wq_init_lockdep(wq);
+	wq_init_lockdep(wq, lockdep_map);
 	INIT_LIST_HEAD(&wq->list);
 
 	if (alloc_flush_pnodes(wq) < 0)
@@ -6295,12 +6309,30 @@ struct workqueue_struct *alloc_workqueue(const char *fmt, unsigned int flags,
 	va_list args;
 
 	va_start(args, max_active);
-	wq = alloc_workqueue_va(fmt, flags, max_active, args);
+	wq = alloc_workqueue_va(fmt, flags, max_active, args, NULL);
 	va_end(args);
 
 	return wq;
 }
 EXPORT_SYMBOL_GPL(alloc_workqueue);
+
+#ifdef CONFIG_LOCKDEP
+__printf(1, 5)
+struct workqueue_struct *
+alloc_workqueue_lockdep_map(const char *fmt, unsigned int flags, int max_active,
+			    struct lockdep_map *lockdep_map, ...)
+{
+	struct workqueue_struct *wq;
+	va_list args;
+
+	va_start(args, lockdep_map);
+	wq = alloc_workqueue_va(fmt, flags, max_active, args, lockdep_map);
+	va_end(args);
+
+	return wq;
+}
+EXPORT_SYMBOL_GPL(alloc_workqueue_lockdep_map);
+#endif
 
 static void devm_workqueue_release(void *res)
 {
@@ -6316,7 +6348,7 @@ devm_alloc_workqueue(struct device *dev, const char *fmt, unsigned int flags,
 	int ret;
 
 	va_start(args, max_active);
-	wq = alloc_workqueue_va(fmt, flags, max_active, args);
+	wq = alloc_workqueue_va(fmt, flags, max_active, args, NULL);
 	va_end(args);
 	if (!wq)
 		return NULL;
