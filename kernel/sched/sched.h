@@ -2218,7 +2218,7 @@ struct sched_class {
 
 	struct task_struct *(*pick_next_task)(struct rq *rq);
 
-	void (*put_prev_task)(struct rq *rq, struct task_struct *p);
+	void (*put_prev_task)(struct rq *rq, struct task_struct *p, struct task_struct *next);
 	void (*set_next_task)(struct rq *rq, struct task_struct *p, bool first);
 
 #ifdef CONFIG_SMP
@@ -2268,14 +2268,13 @@ struct sched_class {
 static inline void put_prev_task(struct rq *rq, struct task_struct *prev)
 {
 	WARN_ON_ONCE(rq->curr != prev);
-	prev->sched_class->put_prev_task(rq, prev);
+	prev->sched_class->put_prev_task(rq, prev, NULL);
 }
 
 static inline void set_next_task(struct rq *rq, struct task_struct *next)
 {
 	next->sched_class->set_next_task(rq, next, false);
 }
-
 
 /*
  * Helper to define a sched_class instance; each one is placed in a separate
