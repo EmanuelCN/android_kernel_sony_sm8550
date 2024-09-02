@@ -2076,6 +2076,12 @@ static ZSTD_DDict *ZSTD_createDDict_advanced(const void *dict, size_t dictSize, 
 	}
 }
 
+ZSTD_DDict *ZSTD_createDDict_byReference(const void *dict, size_t dictSize,
+	ZSTD_customMem customMem)
+{
+	return ZSTD_createDDict_advanced(dict, dictSize, 1, customMem);
+}
+
 /*! ZSTD_initDDict() :
 *   Create a digested dictionary, to start decompression without startup delay.
 *   `dict` content is copied inside DDict.
@@ -2492,11 +2498,15 @@ size_t ZSTD_decompressStream(ZSTD_DStream *zds, ZSTD_outBuffer *output, ZSTD_inB
 
 EXPORT_SYMBOL(ZSTD_DCtxWorkspaceBound);
 EXPORT_SYMBOL(ZSTD_initDCtx);
+EXPORT_SYMBOL(ZSTD_createDCtx_advanced);
+EXPORT_SYMBOL(ZSTD_freeDCtx);
 EXPORT_SYMBOL(ZSTD_decompressDCtx);
 EXPORT_SYMBOL(ZSTD_decompress_usingDict);
 
 EXPORT_SYMBOL(ZSTD_DDictWorkspaceBound);
 EXPORT_SYMBOL(ZSTD_initDDict);
+EXPORT_SYMBOL(ZSTD_createDDict_byReference);
+EXPORT_SYMBOL(ZSTD_freeDDict);
 EXPORT_SYMBOL(ZSTD_decompress_usingDDict);
 
 EXPORT_SYMBOL(ZSTD_DStreamWorkspaceBound);

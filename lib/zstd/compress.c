@@ -106,7 +106,7 @@ size_t ZSTD_CCtxWorkspaceBound(ZSTD_compressionParameters cParams)
 	return ZSTD_ALIGN(sizeof(ZSTD_stack)) + ZSTD_ALIGN(sizeof(ZSTD_CCtx)) + ZSTD_ALIGN(workspaceSize);
 }
 
-static ZSTD_CCtx *ZSTD_createCCtx_advanced(ZSTD_customMem customMem)
+ZSTD_CCtx *ZSTD_createCCtx_advanced(ZSTD_customMem customMem)
 {
 	ZSTD_CCtx *cctx;
 	if (!customMem.customAlloc || !customMem.customFree)
@@ -354,7 +354,7 @@ size_t ZSTD_copyCCtx(ZSTD_CCtx *dstCCtx, const ZSTD_CCtx *srcCCtx, unsigned long
 	{
 		ZSTD_parameters params = srcCCtx->params;
 		params.fParams.contentSizeFlag = (pledgedSrcSize > 0);
-		ZSTD_resetCCtx_advanced(dstCCtx, params, pledgedSrcSize, ZSTDcrp_noMemset);
+		CHECK_F(ZSTD_resetCCtx_advanced(dstCCtx, params, pledgedSrcSize, ZSTDcrp_noMemset));
 	}
 
 	/* copy tables */
@@ -2890,6 +2890,12 @@ static ZSTD_CDict *ZSTD_createCDict_advanced(const void *dictBuffer, size_t dict
 	}
 }
 
+ZSTD_CDict *ZSTD_createCDict_byReference(const void *dict, size_t dictSize,
+	ZSTD_parameters params, ZSTD_customMem customMem)
+{
+	return ZSTD_createCDict_advanced(dict, dictSize, 1, params, customMem);
+}
+
 ZSTD_CDict *ZSTD_initCDict(const void *dict, size_t dictSize, ZSTD_parameters params, void *workspace, size_t workspaceSize)
 {
 	ZSTD_customMem const stackMem = ZSTD_initStack(workspace, workspaceSize);
@@ -3448,11 +3454,15 @@ EXPORT_SYMBOL(ZSTD_compressBound);
 
 EXPORT_SYMBOL(ZSTD_CCtxWorkspaceBound);
 EXPORT_SYMBOL(ZSTD_initCCtx);
+EXPORT_SYMBOL(ZSTD_createCCtx_advanced);
+EXPORT_SYMBOL(ZSTD_freeCCtx);
 EXPORT_SYMBOL(ZSTD_compressCCtx);
 EXPORT_SYMBOL(ZSTD_compress_usingDict);
 
 EXPORT_SYMBOL(ZSTD_CDictWorkspaceBound);
 EXPORT_SYMBOL(ZSTD_initCDict);
+EXPORT_SYMBOL(ZSTD_createCDict_byReference);
+EXPORT_SYMBOL(ZSTD_freeCDict);
 EXPORT_SYMBOL(ZSTD_compress_usingCDict);
 
 EXPORT_SYMBOL(ZSTD_CStreamWorkspaceBound);

@@ -223,15 +223,6 @@ const seqStore_t *ZSTD_getSeqStore(const ZSTD_CCtx *ctx);
 void ZSTD_seqToCodes(const seqStore_t *seqStorePtr);
 int ZSTD_isSkipFrame(ZSTD_DCtx *dctx);
 
-/*= Custom memory allocation functions */
-typedef void *(*ZSTD_allocFunction)(void *opaque, size_t size);
-typedef void (*ZSTD_freeFunction)(void *opaque, void *address);
-typedef struct {
-	ZSTD_allocFunction customAlloc;
-	ZSTD_freeFunction customFree;
-	void *opaque;
-} ZSTD_customMem;
-
 void *ZSTD_malloc(size_t size, ZSTD_customMem customMem);
 void ZSTD_free(void *ptr, ZSTD_customMem customMem);
 
@@ -263,10 +254,6 @@ ZSTD_STATIC U32 ZSTD_highbit32(U32 val) { return 31 - __builtin_clz(val); }
  *        do not use with extDict variant ! */
 void ZSTD_invalidateRepCodes(ZSTD_CCtx *cctx);
 
-size_t ZSTD_freeCCtx(ZSTD_CCtx *cctx);
-size_t ZSTD_freeDCtx(ZSTD_DCtx *dctx);
-size_t ZSTD_freeCDict(ZSTD_CDict *cdict);
-size_t ZSTD_freeDDict(ZSTD_DDict *cdict);
 size_t ZSTD_freeCStream(ZSTD_CStream *zcs);
 size_t ZSTD_freeDStream(ZSTD_DStream *zds);
 

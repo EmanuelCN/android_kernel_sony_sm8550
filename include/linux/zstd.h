@@ -1154,4 +1154,31 @@ size_t ZSTD_decompressBlock(ZSTD_DCtx *dctx, void *dst, size_t dstCapacity,
 size_t ZSTD_insertBlock(ZSTD_DCtx *dctx, const void *blockStart,
 	size_t blockSize);
 
+/*
+ * Advanced dictionary API. Memory returned by customAlloc must be aligned
+ * for Zstd contexts. The custom allocator and its opaque state must remain
+ * available until the last associated context or dictionary is freed.
+ */
+typedef void *(*ZSTD_allocFunction)(void *opaque, size_t size);
+typedef void (*ZSTD_freeFunction)(void *opaque, void *address);
+typedef struct {
+	ZSTD_allocFunction customAlloc;
+	ZSTD_freeFunction customFree;
+	void *opaque;
+} ZSTD_customMem;
+
+ZSTD_CCtx *ZSTD_createCCtx_advanced(ZSTD_customMem customMem);
+ZSTD_DCtx *ZSTD_createDCtx_advanced(ZSTD_customMem customMem);
+
+/* Referenced dictionary bytes must outlive the dictionary object. */
+ZSTD_CDict *ZSTD_createCDict_byReference(const void *dict, size_t dictSize,
+	ZSTD_parameters params, ZSTD_customMem customMem);
+ZSTD_DDict *ZSTD_createDDict_byReference(const void *dict, size_t dictSize,
+	ZSTD_customMem customMem);
+
+size_t ZSTD_freeCCtx(ZSTD_CCtx *cctx);
+size_t ZSTD_freeDCtx(ZSTD_DCtx *dctx);
+size_t ZSTD_freeCDict(ZSTD_CDict *cdict);
+size_t ZSTD_freeDDict(ZSTD_DDict *ddict);
+
 #endif  /* ZSTD_H */
