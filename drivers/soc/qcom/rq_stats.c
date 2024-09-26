@@ -11,7 +11,7 @@
 #include <trace/hooks/sched.h>
 
 #define MAX_LONG_SIZE 24
-#define DEFAULT_DEF_TIMER_JIFFIES 5
+#define DEFAULT_DEF_TIMER_JIFFIES 500
 
 struct rq_data {
 	unsigned long def_timer_jiffies;
