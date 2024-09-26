@@ -3622,6 +3622,8 @@ static vm_fault_t remove_device_exclusive_entry(struct vm_fault *vmf)
 	return 0;
 }
 
+static DECLARE_WAIT_QUEUE_HEAD(swapcache_wq);
+
 /*
  * We enter with non-exclusive mmap_lock (to exclude vma changes,
  * but allow concurrent faults), and pte mapped but not yet locked.
@@ -3692,8 +3694,12 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 			/* Keep the slot from being reused until PTE validation. */
 			if (swapcache_prepare(entry)) {
+				DECLARE_WAITQUEUE(wait, current);
+
 				delayacct_clear_flag(current, DELAYACCT_PF_SWAPIN);
+				add_wait_queue(&swapcache_wq, &wait);
 				schedule_timeout_uninterruptible(1);
+				remove_wait_queue(&swapcache_wq, &wait);
 				goto out;
 			}
 			need_clear_cache = true;
@@ -3863,8 +3869,10 @@ unlock:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
 out:
 	/* Drop the direct-swapin reservation after releasing the PTL. */
-	if (need_clear_cache)
+	if (need_clear_cache) {
 		swapcache_clear(si, entry);
+		wake_up(&swapcache_wq);
+	}
 	if (si)
 		put_swap_device(si);
 	return ret;
