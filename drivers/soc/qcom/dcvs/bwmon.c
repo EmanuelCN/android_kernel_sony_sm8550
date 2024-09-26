@@ -29,8 +29,8 @@
 
 static LIST_HEAD(hwmon_list);
 static DEFINE_SPINLOCK(list_lock);
-static DEFINE_SPINLOCK(sample_irq_lock);
 static DEFINE_SPINLOCK(mon_irq_lock);
+static spinlock_t mon_reg_lock[MON3 + 1];
 static DEFINE_MUTEX(bwmon_lock);
 static struct workqueue_struct *bwmon_wq;
 static u32 get_dst_from_map(struct bw_hwmon *hw, u32 src_vote);
@@ -501,9 +501,9 @@ static int bw_hwmon_sample_end(struct bw_hwmon *hwmon)
 	unsigned long flags;
 	int wake;
 
-	spin_lock_irqsave(&sample_irq_lock, flags);
+	spin_lock_irqsave(&hwmon->sample_irq_lock, flags);
 	wake = __bw_hwmon_sample_end(hwmon);
-	spin_unlock_irqrestore(&sample_irq_lock, flags);
+	spin_unlock_irqrestore(&hwmon->sample_irq_lock, flags);
 
 	return wake;
 }
@@ -532,7 +532,7 @@ static unsigned long get_bw_and_set_irq(struct hwmon_node *node,
 	ktime_t ts;
 	unsigned int ms = 0;
 
-	spin_lock_irqsave(&sample_irq_lock, flags);
+	spin_lock_irqsave(&hw->sample_irq_lock, flags);
 
 	if (!hw->set_hw_events) {
 		ts = ktime_get();
@@ -671,7 +671,7 @@ static unsigned long get_bw_and_set_irq(struct hwmon_node *node,
 	node->wake = 0;
 	node->prev_req = req_mbps;
 
-	spin_unlock_irqrestore(&sample_irq_lock, flags);
+	spin_unlock_irqrestore(&hw->sample_irq_lock, flags);
 
 	adj_mbps = req_mbps + node->guard_band_mbps;
 
@@ -1375,8 +1375,13 @@ void mon_set_zones(struct bwmon *m, unsigned int sample_ms,
 
 static void mon_set_limit(struct bwmon *m, u32 count)
 {
+	static DEFINE_SPINLOCK(mon_thres_lock);
+	unsigned long flags;
+
+	spin_lock_irqsave(&mon_thres_lock, flags);
 	writel_relaxed(count, MON_THRES(m));
 	dev_dbg(m->dev, "Thres: %08x\n", count);
+	spin_unlock_irqrestore(&mon_thres_lock, flags);
 }
 
 static u32 mon_get_limit(struct bwmon *m)
@@ -1500,13 +1505,15 @@ static __always_inline
 unsigned long __get_bytes_and_clear(struct bw_hwmon *hw, enum mon_reg_type type)
 {
 	struct bwmon *m = to_bwmon(hw);
-	unsigned long count;
+	unsigned long count, flags;
 
+	spin_lock_irqsave(&mon_reg_lock[type], flags);
 	mon_disable(m, type);
 	count = mon_get_count(m, type);
 	mon_clear(m, false, type);
 	mon_irq_clear(m, type);
 	mon_enable(m, type);
+	spin_unlock_irqrestore(&mon_reg_lock[type], flags);
 
 	return count;
 }
@@ -1528,10 +1535,11 @@ static unsigned long get_bytes_and_clear3(struct bw_hwmon *hw)
 
 static unsigned long set_thres(struct bw_hwmon *hw, unsigned long bytes)
 {
-	unsigned long count;
+	unsigned long count, flags;
 	u32 limit;
 	struct bwmon *m = to_bwmon(hw);
 
+	spin_lock_irqsave(&mon_reg_lock[MON1], flags);
 	mon_disable(m, MON1);
 	count = mon_get_count1(m);
 	mon_clear(m, false, MON1);
@@ -1544,6 +1552,7 @@ static unsigned long set_thres(struct bw_hwmon *hw, unsigned long bytes)
 
 	mon_set_limit(m, limit);
 	mon_enable(m, MON1);
+	spin_unlock_irqrestore(&mon_reg_lock[MON1], flags);
 
 	return count;
 }
@@ -1553,13 +1562,16 @@ __set_hw_events(struct bw_hwmon *hw, unsigned int sample_ms,
 		enum mon_reg_type type)
 {
 	struct bwmon *m = to_bwmon(hw);
+	unsigned long flags;
 
+	spin_lock_irqsave(&mon_reg_lock[type], flags);
 	mon_disable(m, type);
 	mon_clear(m, false, type);
 	mon_irq_clear(m, type);
 
 	mon_set_zones(m, sample_ms, type);
 	mon_enable(m, type);
+	spin_unlock_irqrestore(&mon_reg_lock[type], flags);
 
 	return 0;
 }
@@ -1794,7 +1806,7 @@ static int qcom_bwmon_driver_probe(struct platform_device *pdev)
 	struct resource *res;
 	struct bwmon *m;
 	struct hwmon_node *node;
-	int ret;
+	int ret, i;
 	u32 data, count_unit;
 	u32 dcvs_hw = NUM_DCVS_PATHS, second_hw = NUM_DCVS_PATHS;
 	struct kobject *dcvs_kobj;
@@ -1972,6 +1984,9 @@ static int qcom_bwmon_driver_probe(struct platform_device *pdev)
 		return ret;
 	}
 	node = m->hw.node;
+
+	for (i = 0; i < MON3 + 1; i++)
+		spin_lock_init(&mon_reg_lock[i]);
 
 	ret = qcom_dcvs_hw_minmax_get(dcvs_hw, &node->hw_min_freq,
 						&node->hw_max_freq);
