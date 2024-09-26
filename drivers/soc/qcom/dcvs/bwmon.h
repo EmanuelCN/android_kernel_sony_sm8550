@@ -80,6 +80,7 @@ struct bw_hwmon {
 	unsigned long		up_wake_mbps;
 	unsigned long		down_wake_mbps;
 	unsigned int		down_cnt;
+	spinlock_t		sample_irq_lock;
 };
 
 struct bwmon {
