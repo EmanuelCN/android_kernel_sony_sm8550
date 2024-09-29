@@ -43,14 +43,6 @@
 #define SLOW 1
 #define FAST 2
 
-/* CPU Clusters Info */
-enum cpu_cluster_info {
-	SILVER_CORE,
-	GOLD_CORE,
-	GOLD_PRIME_CORE,
-	MAX_NUM_CLUSTERS,
-};
-
 enum ufs_qcom_phy_submode {
 	UFS_QCOM_PHY_SUBMODE_NON_G4,
 	UFS_QCOM_PHY_SUBMODE_G4,
@@ -576,19 +568,12 @@ struct ufs_qcom_host {
 	int chosen_algo;
 	struct ufs_clk_info *ref_clki;
 	struct ufs_clk_info *core_unipro_clki;
-	atomic_t hi_pri_en;
-	atomic_t therm_mitigation;
-	cpumask_t perf_mask;
-	cpumask_t silver_mask;
-	cpumask_t gold_mask;
-	cpumask_t gold_prime_mask;
 	u32 vccq_lpm_uV;
 	bool disable_wb_support;
 	struct ufs_qcom_ber_hist ber_hist[UFS_QCOM_BER_MODE_MAX];
 	struct list_head regs_list_head;
 	bool ber_th_exceeded;
 	u32 valid_evt_cnt[UFS_EVT_CNT];
-	bool irq_affinity_support;
 	bool bypass_pbl_rst_wa;
 	struct notifier_block ufs_qcom_panic_nb;
 
