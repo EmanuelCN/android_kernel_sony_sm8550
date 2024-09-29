@@ -9,7 +9,6 @@
 #include <linux/reset-controller.h>
 #include <linux/reset.h>
 #include <linux/phy/phy.h>
-#include <linux/pm_qos.h>
 #include <linux/notifier.h>
 #include <linux/panic_notifier.h>
 #include "ufshcd.h"
@@ -349,30 +348,6 @@ struct qcom_bus_scale_data {
 	const char *name;
 };
 
-struct qos_cpu_group {
-	cpumask_t mask;
-	unsigned int *votes;
-	struct dev_pm_qos_request *qos_req;
-	bool voted;
-	struct work_struct vwork;
-	struct ufs_qcom_host *host;
-	unsigned int curr_vote;
-	bool perf_core;
-};
-
-struct ufs_qcom_qos_req {
-	struct qos_cpu_group *qcg;
-	unsigned int num_groups;
-	struct workqueue_struct *workq;
-};
-
-/* Check for QOS_POWER when added to DT */
-enum constraint {
-	QOS_PERF,
-	QOS_POWER,
-	QOS_MAX,
-};
-
 enum ufs_qcom_therm_lvl {
 	UFS_QCOM_LVL_NO_THERM, /* No thermal mitigation */
 	UFS_QCOM_LVL_AGGR_THERM, /* Aggressive thermal mitigation */
@@ -585,7 +560,6 @@ struct ufs_qcom_host {
 	bool is_phy_pwr_on;
 	/* Protect the usage of is_phy_pwr_on against racing */
 	struct mutex phy_mutex;
-	struct ufs_qcom_qos_req *ufs_qos;
 	struct ufs_qcom_thermal uqt;
 	/* FlashPVL entries */
 	bool err_occurred;
@@ -596,12 +570,6 @@ struct ufs_qcom_host {
 #define NUM_REQS_HIGH_THRESH 64
 #define NUM_REQS_LOW_THRESH 32
 	atomic_t num_reqs_threshold;
-	bool cur_freq_vote;
-	struct delayed_work fwork;
-	bool cpufreq_dis;
-	unsigned int min_cpu_scale_freq;
-	unsigned int max_cpu_scale_freq;
-	int config_cpu;
 	void *ufs_ipc_log_ctx;
 	bool dbg_en;
 	struct device_node *np;
