@@ -164,7 +164,6 @@ static int ufs_qcom_config_shared_ice(struct ufs_qcom_host *host);
 static int ufs_qcom_ber_threshold_set(const char *val, const struct kernel_param *kp);
 static int ufs_qcom_ber_duration_set(const char *val, const struct kernel_param *kp);
 static void ufs_qcom_ber_mon_init(struct ufs_hba *hba);
-static void ufs_qcom_populate_available_cpus(struct ufs_hba *hba);
 
 static s64 idle_time[UFS_QCOM_BER_MODE_MAX];
 static ktime_t idle_start;
@@ -1463,39 +1462,6 @@ static int ufs_qcom_disable_vreg(struct device *dev, struct ufs_vreg *vreg)
 	vreg->enabled = false;
 out:
 	return ret;
-}
-
-static void ufs_qcom_set_affinity_hint(struct ufs_hba *hba, bool prime)
-{
-	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
-	unsigned int set = 0;
-	unsigned int clear = 0;
-	int ret;
-	cpumask_t *affinity_mask;
-
-	if (prime) {
-		set = IRQ_NO_BALANCING;
-		affinity_mask = &host->perf_mask;
-	} else {
-		clear = IRQ_NO_BALANCING;
-		affinity_mask = &host->silver_mask;
-	}
-
-	irq_modify_status(hba->irq, clear, set);
-	ret = irq_set_affinity_hint(hba->irq, affinity_mask);
-	if (ret < 0)
-		ufs_qcom_msg(ERR, host->hba->dev, "prime=%d, err=%d\n", prime, ret);
-}
-
-static void ufs_qcom_toggle_pri_affinity(struct ufs_hba *hba, bool on)
-{
-	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
-
-	if (on && atomic_read(&host->therm_mitigation))
-		return;
-
-	atomic_set(&host->hi_pri_en, on);
-	ufs_qcom_set_affinity_hint(hba, on);
 }
 
 static void ufs_qcom_device_reset_ctrl(struct ufs_hba *hba, bool asserted)
@@ -3010,75 +2976,6 @@ ufs_qcom_ioctl(struct scsi_device *dev, unsigned int cmd, void __user *buffer)
 	return err;
 }
 
-/**
- * ufs_qcom_populate_available_cpus - Populate all the available cpu masks -
- * Silver, gold and gold prime.
- * @hba: per adapter instance
- */
-static void ufs_qcom_populate_available_cpus(struct ufs_hba *hba)
-{
-	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
-	int cid_cpu[MAX_NUM_CLUSTERS] = {-1, -1, -1};
-	int cid = -1;
-	int prev_cid = -1;
-	int cpu;
-
-	/*
-	 * Due to Logical contiguous CPU numbering, one to one mapping
-	 * between physical and logical cpu is no more applicable.
-	 * Hence we are not passing cpu mask from the device tree.
-	 * Hence populate the cpu mask dynamically as below.
-	 */
-	for_each_cpu(cpu, cpu_possible_mask) {
-		cid = topology_physical_package_id(cpu);
-		if (cid != prev_cid) {
-			cid_cpu[cid] = cpu;
-			prev_cid = cid;
-		}
-	}
-
-	/*
-	 * perf_mask which is needed for dynamic irq_affinity feature is updated
-	 * with either gold or gold_prime depending on the availability of the core.
-	 */
-	if (cid_cpu[SILVER_CORE] != -1)
-		host->silver_mask.bits[0] =
-			topology_core_cpumask(cid_cpu[SILVER_CORE])->bits[0];
-
-	if (cid_cpu[GOLD_CORE] != -1) {
-		host->gold_mask.bits[0] =
-			topology_core_cpumask(cid_cpu[GOLD_CORE])->bits[0];
-		host->perf_mask.bits[0] = host->gold_mask.bits[0];
-	}
-
-	if (cid_cpu[GOLD_PRIME_CORE] != -1) {
-		host->gold_prime_mask.bits[0] =
-			topology_core_cpumask(cid_cpu[GOLD_PRIME_CORE])->bits[0];
-		host->perf_mask.bits[0] = host->gold_prime_mask.bits[0];
-	}
-}
-
-static void ufs_qcom_parse_irq_affinity(struct ufs_hba *hba)
-{
-	struct device *dev = hba->dev;
-	struct device_node *np = dev->of_node;
-	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
-	int err;
-
-	if (np) {
-		/* check for dynamic irq affinity feature support */
-		err = of_property_read_bool(np, "qcom,dynamic-irq-affinity");
-		if (!err) {
-			ufs_qcom_msg(DBG, host->hba->dev, "dynamic irq affinity not supported\n");
-			return;
-		}
-	}
-
-	/* If perf mask is available then only enable dynamic irq affinity feature */
-	if (host->perf_mask.bits[0])
-		host->irq_affinity_support = true;
-}
-
 static void ufs_qcom_parse_pm_level(struct ufs_hba *hba)
 {
 	struct device *dev = hba->dev;
@@ -3141,8 +3038,6 @@ static int ufs_qcom_set_cur_therm_state(struct thermal_cooling_device *tcd,
 	switch (data) {
 	case UFS_QCOM_LVL_NO_THERM:
 		ufs_qcom_msg(WARN, tcd->devdata, "UFS host thermal mitigation stops\n");
-		if (host->irq_affinity_support)
-			atomic_set(&host->therm_mitigation, 0);
 
 		/* Set the default auto-hiberate idle timer to 5 ms */
 		ufshcd_auto_hibern8_update(hba, ufs_qcom_us_to_ahit(5000));
@@ -3156,12 +3051,6 @@ static int ufs_qcom_set_cur_therm_state(struct thermal_cooling_device *tcd,
 	case UFS_QCOM_LVL_MAX_THERM:
 		ufs_qcom_msg(WARN, tcd->devdata,
 			"Going into UFS host thermal mitigation state, performance may be impacted before UFS host thermal mitigation stops\n");
-
-		if (host->irq_affinity_support) {
-			/* Stop setting hi-pri to requests and set irq affinity to default value */
-			atomic_set(&host->therm_mitigation, 1);
-			ufs_qcom_toggle_pri_affinity(hba, false);
-		}
 		/* Set the default auto-hiberate idle timer to 1 ms */
 		ufshcd_auto_hibern8_update(hba, ufs_qcom_us_to_ahit(1000));
 
@@ -3735,8 +3624,6 @@ static int ufs_qcom_init(struct ufs_hba *hba)
 
 	ufs_qcom_save_host_ptr(hba);
 
-	ufs_qcom_populate_available_cpus(hba);
-	ufs_qcom_parse_irq_affinity(hba);
 	ufs_qcom_ber_mon_init(hba);
 	host->ufs_ipc_log_ctx = ipc_log_context_create(UFS_QCOM_MAX_LOG_SZ,
 							"ufs-qcom", 0);
@@ -4900,44 +4787,13 @@ static ssize_t irq_affinity_support_store(struct device *dev,
 		struct device_attribute *attr,
 		const char *buf, size_t count)
 {
-	struct ufs_hba *hba = dev_get_drvdata(dev);
-	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
-	bool value;
-
-	if (!capable(CAP_SYS_ADMIN))
-		return -EACCES;
-
-	if (kstrtobool(buf, &value))
-		return -EINVAL;
-
-	/* if current irq_affinity_support is same as requested one, don't proceed */
-	if (value == host->irq_affinity_support)
-		goto out;
-
-	/* if perf-mask is not set, don't proceed */
-	if (!host->perf_mask.bits[0])
-		goto out;
-
-	host->irq_affinity_support = !!value;
-	/* Reset cpu affinity accordingly */
-	if (host->irq_affinity_support)
-		ufs_qcom_set_affinity_hint(hba, true);
-	else
-		ufs_qcom_set_affinity_hint(hba, false);
-
 	return count;
-
-out:
-	return -EINVAL;
 }
 
 static ssize_t irq_affinity_support_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct ufs_hba *hba = dev_get_drvdata(dev);
-	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
-
-	return scnprintf(buf, PAGE_SIZE, "%d\n", !!host->irq_affinity_support);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", false);
 }
 
 static DEVICE_ATTR_RW(irq_affinity_support);
@@ -4994,8 +4850,6 @@ static void ufs_qcom_hook_send_command(void *param, struct ufs_hba *hba,
 					ufshcd_readl(hba,
 						REG_UTP_TRANSFER_REQ_DOOR_BELL),
 					sz);
-		if ((host->irq_affinity_support) && atomic_read(&host->hi_pri_en) && rq)
-			rq->cmd_flags |= REQ_HIPRI;
 	}
 }
 
