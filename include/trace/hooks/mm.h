@@ -252,10 +252,6 @@ DECLARE_HOOK(android_vh_set_page_migrating,
 DECLARE_HOOK(android_vh_clear_page_migrating,
 	TP_PROTO(struct page *page),
 	TP_ARGS(page));
-DECLARE_HOOK(android_vh_cma_alloc_bypass,
-	TP_PROTO(struct cma *cma, unsigned long count, unsigned int align,
-		bool no_warn, struct page **page, bool *bypass),
-	TP_ARGS(cma, count, align, no_warn, page, bypass));
 DECLARE_HOOK(android_vh_alloc_pages_entry,
 	TP_PROTO(gfp_t *gfp, unsigned int order, int preferred_nid,
 		nodemask_t *nodemask),
