@@ -26,6 +26,7 @@
 #include <linux/types.h>
 #include <linux/wait.h>
 #include <linux/bitops.h>
+#include <linux/pm_qos.h>
 #include <linux/pm_runtime.h>
 #include <linux/clk.h>
 #include <linux/completion.h>
@@ -988,6 +989,15 @@ struct ufs_hba {
 #endif
 	u32 luns_avail;
 	bool complete_put;
+
+	struct {
+		struct pm_qos_request req;
+		struct work_struct get_work;
+		struct work_struct put_work;
+		struct mutex lock;
+		atomic_t count;
+		bool active;
+	} pm_qos;
 
 	ANDROID_VENDOR_DATA(1);
 	ANDROID_OEM_DATA_ARRAY(1, 2);
