@@ -32,7 +32,7 @@
  * DELAY_ZERO clips the lag on dequeue (or wakeup) to 0.
  */
 #define SCHED_FEAT_DELAY_DEQUEUE 0
-#define SCHED_FEAT_DELAY_ZERO 1
+#define SCHED_FEAT_DELAY_ZERO 0
 
 /*
  * Allow wakeup-time preemption of the current task:
