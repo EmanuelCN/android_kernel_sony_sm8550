@@ -8,6 +8,7 @@
 
 #include <linux/rcupdate.h>
 #include <linux/completion.h>
+#include <linux/sched.h>
 
 /*
  * Structure allowing asynchronous waiting on RCU.
@@ -54,5 +55,16 @@ do {												\
  */
 #define synchronize_rcu_mult(...) \
 	_wait_rcu_gp(IS_ENABLED(CONFIG_TINY_RCU), TASK_UNINTERRUPTIBLE, __VA_ARGS__)
+
+// Has the current task blocked within its current RCU read-side
+// critical section?
+static inline bool has_rcu_reader_blocked(void)
+{
+#ifdef CONFIG_PREEMPT_RCU
+	return !list_empty(&current->rcu_node_entry);
+#else
+	return false;
+#endif
+}
 
 #endif /* _LINUX_SCHED_RCUPDATE_WAIT_H */
