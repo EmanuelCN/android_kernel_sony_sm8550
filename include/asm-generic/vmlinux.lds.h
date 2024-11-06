@@ -342,7 +342,7 @@
 	*(.data..shared_aligned) /* percpu related */			\
 	MEM_KEEP(init.data*)						\
 	MEM_KEEP(exit.data*)						\
-	*(.data.unlikely)						\
+	*(.data..unlikely)						\
 	__start_once = .;						\
 	*(.data.once)							\
 	__end_once = .;							\
