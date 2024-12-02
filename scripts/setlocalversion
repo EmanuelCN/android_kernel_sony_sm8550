@@ -79,39 +79,7 @@ scm_version()
 		# Makefile. Alternatively, set --save-tag to keep the tag.
 		tag="$(git describe --exact-match 2>/dev/null)"
 		if [ -z "$tag" ]; then
-			# If only the short version is requested, don't bother
-			# running further git commands
-			if $short; then
-				echo "+"
-				return
-			fi
-			# If we are past a tagged commit (like
-			# "v2.6.30-rc5-302-g72357d5"), we pretty print it.
-			if atag="$(git describe 2>/dev/null)"; then
-				echo "$atag" | awk -F- '{printf("-%05d", $(NF-1))}'
-			fi
-
-			# Add -g and exactly 12 hex chars.
-			printf '%s%s' -g "$(echo $head | cut -c1-12)"
-		elif $save_tag; then
-			printf '%s' - "$(echo $tag)"
-		fi
-
-		# Check for uncommitted changes.
-		# This script must avoid any write attempt to the source tree,
-		# which might be read-only.
-		# You cannot use 'git describe --dirty' because it tries to
-		# create .git/index.lock .
-		# First, with git-status, but --no-optional-locks is only
-		# supported in git >= 2.14, so fall back to git-diff-index if
-		# it fails. Note that git-diff-index does not refresh the
-		# index, so it may give misleading results. See
-		# git-update-index(1), git-diff-index(1), and git-status(1).
-		if {
-			git --no-optional-locks status -uno --porcelain 2>/dev/null ||
-			git diff-index --name-only HEAD
-		} | read dummy; then
-			printf '%s' -dirty
+			printf '%s' "$(echo $tag)"
 		fi
 	fi
 }
