@@ -283,6 +283,9 @@ static inline bool need_active_lb(struct task_struct *p, int dst_cpu,
 	if (!wts->misfit)
 		return false;
 
+	if (!is_min_cluster_cpu(src_cpu) && !task_fits_max(p, dst_cpu))
+		return false;
+
 	return true;
 }
 
