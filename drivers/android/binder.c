@@ -3465,7 +3465,6 @@ static void binder_transaction(struct binder_proc *proc,
 		e->to_thread = target_thread->pid;
 	e->to_proc = target_proc->pid;
 #endif
-
 	/* TODO: reuse incoming transaction for reply */
 	t = kzalloc(sizeof(*t), GFP_KERNEL);
 	if (t == NULL) {
@@ -4286,8 +4285,8 @@ static int binder_thread_write(struct binder_proc *proc,
 		if (get_user(cmd, (uint32_t __user *)ptr))
 			return -EFAULT;
 		ptr += sizeof(uint32_t);
-		trace_binder_command(cmd);
 #ifdef CONFIG_ANDROID_BINDER_LOGS
+                trace_binder_command(cmd);
 		if (_IOC_NR(cmd) < ARRAY_SIZE(binder_stats.bc)) {
 			atomic_inc(&binder_stats.bc[_IOC_NR(cmd)]);
 			atomic_inc(&proc->stats.bc[_IOC_NR(cmd)]);
@@ -4760,8 +4759,8 @@ static int binder_thread_write(struct binder_proc *proc,
 static void binder_stat_br(struct binder_proc *proc,
 			   struct binder_thread *thread, uint32_t cmd)
 {
-	trace_binder_return(cmd);
 #ifdef CONFIG_ANDROID_BINDER_LOGS
+	trace_binder_return(cmd);
 	if (_IOC_NR(cmd) < ARRAY_SIZE(binder_stats.br)) {
 		atomic_inc(&binder_stats.br[_IOC_NR(cmd)]);
 		atomic_inc(&proc->stats.br[_IOC_NR(cmd)]);
