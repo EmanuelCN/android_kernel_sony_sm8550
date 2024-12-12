@@ -77,6 +77,10 @@ extern const struct file_operations binder_fops;
 
 extern char *binder_devices_param;
 
+#ifdef CONFIG_UCLAMP_TASK
+unsigned long uclamp_eff_value(struct task_struct *p, enum uclamp_id clamp_id);
+#endif
+
 #ifdef CONFIG_ANDROID_BINDERFS
 extern bool is_binderfs_device(const struct inode *inode);
 extern struct dentry *binderfs_create_file(struct dentry *dir, const char *name,
@@ -133,7 +137,7 @@ enum binder_stat_types {
 };
 
 struct binder_stats {
-	atomic_t br[_IOC_NR(BR_ONEWAY_SPAM_SUSPECT) + 1];
+	atomic_t br[_IOC_NR(BR_TRANSACTION_PENDING_FROZEN) + 1];
 	atomic_t bc[_IOC_NR(BC_REPLY_SG) + 1];
 	atomic_t obj_created[BINDER_STAT_COUNT];
 	atomic_t obj_deleted[BINDER_STAT_COUNT];
@@ -152,6 +156,7 @@ struct binder_work {
 	enum binder_work_type {
 		BINDER_WORK_TRANSACTION = 1,
 		BINDER_WORK_TRANSACTION_COMPLETE,
+		BINDER_WORK_TRANSACTION_PENDING,
 		BINDER_WORK_TRANSACTION_ONEWAY_SPAM_SUSPECT,
 		BINDER_WORK_RETURN_ERROR,
 		BINDER_WORK_NODE,
@@ -345,10 +350,10 @@ struct binder_ref {
 };
 
 /**
- * struct binder_priority - scheduler policy and priority
+ * struct binder_priority - scheduler policy, priority and uclamp
  * @sched_policy            scheduler policy
  * @prio                    [100..139] for SCHED_NORMAL, [0..99] for FIFO/RT
- *
+ * @uclamp                  [0..1024] for UCLAMP_MIN & UCLAMP_MAX
  * The binder driver supports inheriting the following scheduler policies:
  * SCHED_NORMAL
  * SCHED_BATCH
@@ -358,6 +363,7 @@ struct binder_ref {
 struct binder_priority {
 	unsigned int sched_policy;
 	int prio;
+	unsigned int uclamp[UCLAMP_CNT];
 };
 
 enum binder_prio_state {
@@ -479,11 +485,13 @@ struct binder_proc {
 /**
  * struct binder_proc_wrap - wrapper to preserve KMI in binder_proc
  * @proc:                    binder_proc being wrapped
+ * @lock:                    protects @proc->alloc fields
  * @delivered_freeze:        list of delivered freeze notification
  *                           (protected by @inner_lock)
  */
 struct binder_proc_wrap {
 	struct binder_proc proc;
+	spinlock_t lock;
 	struct list_head delivered_freeze;
 };
 
@@ -491,6 +499,55 @@ static inline
 struct binder_proc_wrap *proc_wrapper(struct binder_proc *proc)
 {
 	return container_of(proc, struct binder_proc_wrap, proc);
+}
+
+static inline struct binder_proc *
+binder_proc_entry(struct binder_alloc *alloc)
+{
+	return container_of(alloc, struct binder_proc, alloc);
+}
+
+static inline struct binder_proc_wrap *
+binder_alloc_to_proc_wrap(struct binder_alloc *alloc)
+{
+	return proc_wrapper(binder_proc_entry(alloc));
+}
+
+static inline void binder_alloc_lock_init(struct binder_alloc *alloc)
+{
+	spin_lock_init(&binder_alloc_to_proc_wrap(alloc)->lock);
+}
+
+static inline void binder_alloc_lock(struct binder_alloc *alloc)
+{
+	spin_lock(&binder_alloc_to_proc_wrap(alloc)->lock);
+}
+
+static inline void binder_alloc_unlock(struct binder_alloc *alloc)
+{
+	spin_unlock(&binder_alloc_to_proc_wrap(alloc)->lock);
+}
+
+static inline int binder_alloc_trylock(struct binder_alloc *alloc)
+{
+	return spin_trylock(&binder_alloc_to_proc_wrap(alloc)->lock);
+}
+
+/**
+ * binder_alloc_get_free_async_space() - get free space available for async
+ * @alloc:	binder_alloc for this proc
+ *
+ * Return:	the bytes remaining in the address-space for async transactions
+ */
+static inline size_t
+binder_alloc_get_free_async_space(struct binder_alloc *alloc)
+{
+	size_t free_async_space;
+
+	binder_alloc_lock(alloc);
+	free_async_space = alloc->free_async_space;
+	binder_alloc_unlock(alloc);
+	return free_async_space;
 }
 
 /**
@@ -579,6 +636,8 @@ struct binder_transaction {
 	int debug_id;
 	struct binder_work work;
 	struct binder_thread *from;
+	pid_t from_pid;
+	pid_t from_tid;
 	struct binder_transaction *from_parent;
 	struct binder_proc *to_proc;
 	struct binder_thread *to_thread;
@@ -594,6 +653,7 @@ struct binder_transaction {
 	bool set_priority_called;
 	bool is_nested;
 	kuid_t  sender_euid;
+	ktime_t start_time;
 	struct list_head fd_fixups;
 	binder_uintptr_t security_ctx;
 	/**
