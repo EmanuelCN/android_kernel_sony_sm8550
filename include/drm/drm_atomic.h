@@ -370,6 +370,7 @@ struct drm_atomic_state {
 	 */
 	bool legacy_cursor_update : 1;
 	bool async_update : 1;
+	bool connectors_preallocated : 1;
 	/**
 	 * @duplicated:
 	 *
