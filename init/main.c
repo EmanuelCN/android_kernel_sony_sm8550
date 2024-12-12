@@ -1007,6 +1007,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	workqueue_init_early();
 
 	rcu_init();
+	kvfree_rcu_init();
 
 	/* Trace events are available after this */
 	trace_init();
