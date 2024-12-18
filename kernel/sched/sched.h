@@ -3208,6 +3208,7 @@ extern int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se);
 
 static inline unsigned long apply_dvfs_headroom(unsigned long util, int cpu)
 {
+	unsigned int sched_dvfs_headroom[8] = { [0 ... 7] = 1280 };
         unsigned long capacity = capacity_orig_of(cpu);
         unsigned long headroom;
 
@@ -3223,6 +3224,6 @@ static inline unsigned long apply_dvfs_headroom(unsigned long util, int cpu)
         headroom = (capacity - util);
         /* formula: headroom * (1.X - 1) == headroom * 0.X */
         headroom = headroom *
-                (1280 - SCHED_CAPACITY_SCALE) >> SCHED_CAPACITY_SHIFT;
+                (sched_dvfs_headroom[cpu] - SCHED_CAPACITY_SCALE) >> SCHED_CAPACITY_SHIFT;
         return util + headroom;
 }
