@@ -764,7 +764,7 @@ static inline void *kzalloc_node(size_t size, gfp_t flags, int node)
 
 unsigned int kmem_cache_size(struct kmem_cache *s);
 
-#ifdef CONFIG_TINY_RCU
+#ifndef CONFIG_KVFREE_RCU_BATCHED
 static inline void kvfree_rcu_barrier(void)
 {
 	rcu_barrier();

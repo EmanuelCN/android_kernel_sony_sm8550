@@ -1976,6 +1976,10 @@ config SLOB
 
 endchoice
 
+config KVFREE_RCU_BATCHED
+	def_bool y
+	depends on !SLUB_TINY && !TINY_RCU
+
 config SLAB_MERGE_DEFAULT
 	bool "Allow slab caches to be merged"
 	default y
