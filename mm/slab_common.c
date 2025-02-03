@@ -1371,6 +1371,25 @@ int should_failslab(struct kmem_cache *s, gfp_t gfpflags)
 }
 ALLOW_ERROR_INJECTION(should_failslab, ERRNO);
 
+#ifdef CONFIG_TINY_RCU
+
+void kvfree_call_rcu(struct rcu_head *head, void *ptr)
+{
+	if (head) {
+		kasan_record_aux_stack_noalloc(ptr);
+		call_rcu(head, (rcu_callback_t) ((void *) head - ptr));
+		return;
+	}
+
+	// kvfree_rcu(one_arg) call.
+	might_sleep();
+	synchronize_rcu();
+	kvfree(ptr);
+}
+EXPORT_SYMBOL_GPL(kvfree_call_rcu);
+
+#endif
+
 /*
  * This rcu parameter is runtime-read-only. It reflects
  * a minimum allowed number of objects which can be cached
