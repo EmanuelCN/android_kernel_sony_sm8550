@@ -40,6 +40,8 @@
 #include <../kernel/printk/printk_ringbuffer.h>
 #endif
 
+#include <linux/shrinker.h>
+
 #define CREATE_TRACE_POINTS
 #include <trace/hooks/vendor_hooks.h>
 #include <linux/tracepoint.h>
