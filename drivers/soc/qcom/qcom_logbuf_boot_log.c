@@ -317,7 +317,6 @@ int boot_log_register(struct device *dev)
 	ret = register_trace_android_vh_logbuf_pr_cont(copy_boot_log_pr_cont, NULL);
 	if (ret) {
 		dev_err(dev, "Failed to register android_vh_logbuf_pr_cont hook\n");
-		unregister_trace_android_vh_logbuf(copy_boot_log, NULL);
 		kfree(boot_log_buf);
 	}
 
@@ -326,7 +325,5 @@ int boot_log_register(struct device *dev)
 
 void boot_log_unregister(void)
 {
-	unregister_trace_android_vh_logbuf_pr_cont(copy_boot_log_pr_cont, NULL);
-	unregister_trace_android_vh_logbuf(copy_boot_log, NULL);
 	release_boot_log_buf();
 }

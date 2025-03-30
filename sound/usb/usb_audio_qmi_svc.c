@@ -1905,7 +1905,6 @@ free_domain:
 
 static int uaudio_qmi_plat_remove(struct platform_device *pdev)
 {
-	unregister_trace_android_vh_audio_usb_offload_connect(uaudio_connect, NULL);
 	iommu_detach_device(uaudio_qdev->domain, &pdev->dev);
 	iommu_domain_free(uaudio_qdev->domain);
 	uaudio_qdev->domain = NULL;

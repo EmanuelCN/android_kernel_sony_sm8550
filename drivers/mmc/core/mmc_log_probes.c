@@ -165,8 +165,6 @@ static int __init mmc_log_probes_init(void)
 static void __exit mmc_log_probes_exit(void)
 {
 	unregister_trace_block_rq_complete(probe_block_rq_complete, NULL);
-	unregister_trace_android_vh_mmc_blk_mq_rw_recovery(probe_android_vh_mmc_blk_mq_rw_recovery,
-		NULL);
 	kobject_put(mmc_log_kobj);
 }
 

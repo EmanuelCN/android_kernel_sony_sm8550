@@ -5409,8 +5409,6 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 			sdhci_msm_get_cd, NULL);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to register vendor hook (%d)\n", ret);
-		unregister_trace_android_vh_mmc_blk_mq_rw_recovery(
-                        sdhci_msm_remove_card, NULL);
 		goto exit_vh;
 	}
 
@@ -5418,10 +5416,6 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 			sdhci_msm_gpio_irqt, NULL);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to register recovery hook (%d)\n", ret);
-		unregister_trace_android_vh_mmc_blk_mq_rw_recovery(
-                        sdhci_msm_remove_card, NULL);
-		unregister_trace_android_vh_sdhci_get_cd(
-                        sdhci_msm_get_cd, NULL);
 	}
 
 exit_vh:
@@ -5477,13 +5471,6 @@ static int sdhci_msm_remove(struct platform_device *pdev)
 	dead = (readl_relaxed(host->ioaddr + SDHCI_INT_STATUS) ==
 		    0xffffffff);
 
-	unregister_trace_android_vh_mmc_blk_mq_rw_recovery(
-                        sdhci_msm_remove_card, NULL);
-	unregister_trace_android_vh_sdhci_get_cd(
-                        sdhci_msm_get_cd, NULL);
-	unregister_trace_android_vh_mmc_gpio_cd_irqt(
-                        sdhci_msm_gpio_irqt, NULL);
-
 	sdhci_remove_host(host, dead);
 
 	sdhci_msm_vreg_init(&pdev->dev, msm_host, false);
@@ -5516,8 +5503,6 @@ skip_removing_qos:
 		sdhci_msm_bus_get_and_set_vote(host, 0);
 		sdhci_msm_bus_unregister(&pdev->dev, msm_host);
 	}
-	unregister_trace_android_vh_sd_update_bus_speed_mode(
-			sdhci_msm_disable_scr_cmd48_support, NULL);
 
 	sdhci_pltfm_free(pdev);
 	return 0;
