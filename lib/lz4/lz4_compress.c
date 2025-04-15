@@ -61,8 +61,8 @@ static FORCE_INLINE U32 LZ4_hash4(U32 sequence, tableType_t const tableType)
 
 static FORCE_INLINE U32 LZ4_hash5(U64 sequence, tableType_t const tableType)
 {
-	const U32 hashLog = (tableType == byU16) ? LZ4_HASHLOG + 1 :
-						   LZ4_HASHLOG;
+	const U32 hashLog =
+		(tableType == byU16) ? LZ4_HASHLOG + 1 : LZ4_HASHLOG;
 
 #if LZ4_LITTLE_ENDIAN
 	static const U64 prime5bytes = 889523592379ULL;
@@ -312,8 +312,8 @@ static FORCE_INLINE int LZ4_compress_generic_validated(
 	U32 const prefixIdxLimit =
 		startIndex -
 		dictSize; /* used when dictDirective == dictSmall */
-	const BYTE *const dictEnd = dictionary ? dictionary + dictSize :
-						 dictionary;
+	const BYTE *const dictEnd =
+		dictionary ? dictionary + dictSize : dictionary;
 	const BYTE *anchor = (const BYTE *)source;
 	const BYTE *const iend = ip + inputSize;
 	const BYTE *const mflimitPlusOne = iend - MFLIMIT + 1;
@@ -537,7 +537,7 @@ static FORCE_INLINE int LZ4_compress_generic_validated(
 				 litLength, (int)(ip - (const BYTE *)source));
 		}
 
-_next_match:
+	_next_match:
 		/* at this stage, the following variables must be correctly set :
          * - ip : at start of LZ operation
          * - match : at start of previous pattern occurrence; can be within current prefix, or within extDict
@@ -588,9 +588,10 @@ _next_match:
 						      match + MINMATCH, limit);
 				ip += (size_t)matchCode + MINMATCH;
 				if (ip == limit) {
-					unsigned const more = LZ4_count(
-						limit, (const BYTE *)source,
-						matchlimit);
+					unsigned const more =
+						LZ4_count(limit,
+							  (const BYTE *)source,
+							  matchlimit);
 					matchCode += more;
 					ip += more;
 				}
@@ -599,9 +600,9 @@ _next_match:
 					"             with matchLength=%u starting in extDict",
 					matchCode + MINMATCH);
 			} else {
-				matchCode = LZ4_count(ip + MINMATCH,
-						      match + MINMATCH,
-						      matchlimit);
+				matchCode =
+					LZ4_count(ip + MINMATCH,
+						  match + MINMATCH, matchlimit);
 				ip += (size_t)matchCode + MINMATCH;
 				DEBUGLOG(6, "             with matchLength=%u",
 					 matchCode + MINMATCH);
@@ -835,9 +836,9 @@ static FORCE_INLINE int LZ4_compress_generic(
 		dictIssue, acceleration);
 }
 
-static int LZ4_compress_fast_extState(void *state, const char *source, char *dest,
-			       int inputSize, int maxOutputSize,
-			       int acceleration)
+static int LZ4_compress_fast_extState(void *state, const char *source,
+				      char *dest, int inputSize,
+				      int maxOutputSize, int acceleration)
 {
 	LZ4_stream_t_internal *const ctx =
 		&LZ4_initStream(state, sizeof(LZ4_stream_t))->internal_donotuse;

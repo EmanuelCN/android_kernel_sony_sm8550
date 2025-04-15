@@ -67,8 +67,8 @@ typedef uintptr_t uptrval;
 #define LZ4_LITTLE_ENDIAN 0
 #endif
 
-#define DEBUGLOG(l, ...) \
-	{                \
+#define DEBUGLOG(l, ...)                                                       \
+	{                                                                      \
 	} /* disabled */
 
 #ifndef assert
@@ -85,8 +85,8 @@ typedef uintptr_t uptrval;
 #define WILDCOPYLENGTH 8
 #define LASTLITERALS 5 /* see ../doc/lz4_Block_format.md#parsing-restrictions */
 #define MFLIMIT 12 /* see ../doc/lz4_Block_format.md#parsing-restrictions */
-#define MATCH_SAFEGUARD_DISTANCE \
-	((2 * WILDCOPYLENGTH) -  \
+#define MATCH_SAFEGUARD_DISTANCE                                               \
+	((2 * WILDCOPYLENGTH) -                                                \
 	 MINMATCH) /* ensure it's possible to write 2 x wildcopyLength without overflowing output buffer */
 #define FASTLOOP_SAFE_DISTANCE 64
 
