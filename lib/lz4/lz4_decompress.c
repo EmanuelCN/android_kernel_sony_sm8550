@@ -573,7 +573,7 @@ LZ4_decompress_generic(const char *const src, char *const dst, int srcSize,
 
 			op = cpy; /* wildcopy correction */
 		}
-safe_decode:
+	safe_decode:
 #endif
 
 		/* Main Loop : decode remaining sequences where output < FASTLOOP_SAFE_DISTANCE */
@@ -646,7 +646,7 @@ safe_decode:
 			/* copy literals */
 			cpy = op + length;
 #if LZ4_FAST_DEC_LOOP
-safe_literal_copy:
+		safe_literal_copy:
 #endif
 			LZ4_STATIC_ASSERT(MFLIMIT >= WILDCOPYLENGTH);
 			if ((cpy > oend - MFLIMIT) ||
@@ -741,7 +741,7 @@ safe_literal_copy:
 			/* get matchlength */
 			length = token & ML_MASK;
 
-_copy_match:
+		_copy_match:
 			if (length == ML_MASK) {
 				size_t const addl = read_variable_length(
 					&ip, iend - LASTLITERALS + 1, 0);
@@ -756,7 +756,7 @@ _copy_match:
 			length += MINMATCH;
 
 #if LZ4_FAST_DEC_LOOP
-safe_match_copy:
+		safe_match_copy:
 #endif
 			if ((checkOffset) &&
 			    (unlikely(match + dictSize < lowPrefix)))
@@ -880,7 +880,7 @@ safe_match_copy:
 			     dst); /* Nb of output bytes decoded */
 
 		/* Overflow error detected */
-_output_error:
+	_output_error:
 		return (int)(-(((const char *)ip) - src)) - 1;
 	}
 }
@@ -905,7 +905,8 @@ int LZ4_decompress_safe_partial(const char *src, char *dst, int compressedSize,
 /* ===== Instantiate a few more decoding cases, used more than once. ===== */
 
 static int LZ4_decompress_safe_withPrefix64k(const char *source, char *dest,
-				      int compressedSize, int maxOutputSize)
+					     int compressedSize,
+					     int maxOutputSize)
 {
 	return LZ4_decompress_generic(source, dest, compressedSize,
 				      maxOutputSize, decode_full_block,
@@ -924,8 +925,10 @@ static int LZ4_decompress_safe_withSmallPrefix(const char *source, char *dest,
 }
 
 static int LZ4_decompress_safe_forceExtDict(const char *source, char *dest,
-				     int compressedSize, int maxOutputSize,
-				     const void *dictStart, size_t dictSize)
+					    int compressedSize,
+					    int maxOutputSize,
+					    const void *dictStart,
+					    size_t dictSize)
 {
 	return LZ4_decompress_generic(source, dest, compressedSize,
 				      maxOutputSize, decode_full_block,
