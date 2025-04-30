@@ -458,6 +458,9 @@ extern void delete_from_swap_cache(struct page *);
 extern void clear_shadow_from_swap_cache(int type, unsigned long begin,
 				unsigned long end);
 extern void free_swap_cache(struct page *);
+
+int kcompressd(void *p);
+
 extern void free_page_and_swap_cache(struct page *);
 extern void free_pages_and_swap_cache(struct page **, int);
 extern struct page *lookup_swap_cache(swp_entry_t entry,
@@ -694,6 +697,11 @@ static inline swp_entry_t get_swap_page(struct page *page)
 	swp_entry_t entry;
 	entry.val = 0;
 	return entry;
+}
+
+static inline int kcompressd(void *p)
+{
+	return 0;
 }
 
 #endif /* CONFIG_SWAP */
