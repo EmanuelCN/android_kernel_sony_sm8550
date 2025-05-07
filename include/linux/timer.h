@@ -101,7 +101,7 @@ static inline void init_timer_on_stack_key(struct timer_list *timer,
 		init_timer_key((_timer), (_fn), (_flags), #_timer, &__key);\
 	} while (0)
 
-#define __init_timer_on_stack(_timer, _fn, _flags)			\
+#define __timer_init_on_stack(_timer, _fn, _flags)			\
 	do {								\
 		static struct lock_class_key __key;			\
 		init_timer_on_stack_key((_timer), (_fn), (_flags),	\
@@ -110,7 +110,7 @@ static inline void init_timer_on_stack_key(struct timer_list *timer,
 #else
 #define __timer_init(_timer, _fn, _flags)				\
 	init_timer_key((_timer), (_fn), (_flags), NULL, NULL)
-#define __init_timer_on_stack(_timer, _fn, _flags)			\
+#define __timer_init_on_stack(_timer, _fn, _flags)			\
 	init_timer_on_stack_key((_timer), (_fn), (_flags), NULL, NULL)
 #endif
 
@@ -128,7 +128,7 @@ static inline void init_timer_on_stack_key(struct timer_list *timer,
 	__timer_init((timer), (callback), (flags))
 
 #define timer_setup_on_stack(timer, callback, flags)		\
-	__init_timer_on_stack((timer), (callback), (flags))
+	__timer_init_on_stack((timer), (callback), (flags))
 
 #ifdef CONFIG_DEBUG_OBJECTS_TIMERS
 extern void destroy_timer_on_stack(struct timer_list *timer);
