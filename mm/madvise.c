@@ -804,7 +804,7 @@ static long madvise_dontneed_single_vma(struct vm_area_struct *vma,
 {
 	madvise_vma_pad_pages(vma, start, end);
 
-	zap_page_range(vma, start, end - start);
+	zap_page_range_single(vma, start, end - start, NULL);
 	return 0;
 }
 
@@ -1284,6 +1284,41 @@ int madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
 				 madvise_vma_anon_name);
 }
 #endif /* CONFIG_ANON_VMA_NAME */
+
+static struct vm_area_struct *madvise_lock_vma(struct mm_struct *mm,
+		unsigned long start, unsigned long end)
+{
+	struct vm_area_struct *vma = lock_vma_under_rcu(mm, start);
+
+	if (!vma)
+		return NULL;
+
+	if (end > vma->vm_end || userfaultfd_armed(vma))
+		goto unlock;
+
+	/*
+	 * A partial tail of a private file mapping can be an Android ELF
+	 * padding hint. Keep the vm_flags update under mmap_lock, even if
+	 * page-size migration is enabled after this check.
+	 */
+	if (PAGE_SIZE == SZ_4K && IS_ENABLED(CONFIG_64BIT) &&
+	    vma->vm_file && !(vma->vm_flags & VM_SHARED) &&
+	    start > vma->vm_start && end == vma->vm_end &&
+	    end - start <= VM_TOTAL_PAD_PAGES * PAGE_SIZE)
+		goto unlock;
+
+	/* Splitting a huge PUD in the zap path requires mmap_lock. */
+	if (IS_ENABLED(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD) &&
+	    vma->vm_ops && vma->vm_ops->huge_fault)
+		goto unlock;
+
+	return vma;
+
+unlock:
+	vma_end_read(vma);
+	return NULL;
+}
+
 /*
  * The madvise(2) system call.
  *
@@ -1356,6 +1391,7 @@ int madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
  */
 int do_madvise(struct mm_struct *mm, unsigned long start, size_t len_in, int behavior)
 {
+	struct vm_area_struct *vma = NULL;
 	unsigned long end;
 	int error;
 	int write;
@@ -1387,19 +1423,33 @@ int do_madvise(struct mm_struct *mm, unsigned long start, size_t len_in, int beh
 		return madvise_inject_error(behavior, start, start + len_in);
 #endif
 
+	if (behavior == MADV_DONTNEED && mm == current->mm)
+		vma = madvise_lock_vma(mm, start, end);
+
 	write = madvise_need_mmap_write(behavior);
-	if (write) {
-		if (mmap_write_lock_killable(mm))
-			return -EINTR;
-	} else {
-		mmap_read_lock(mm);
+	if (!vma) {
+		if (write) {
+			if (mmap_write_lock_killable(mm))
+				return -EINTR;
+		} else {
+			mmap_read_lock(mm);
+		}
 	}
 
 	blk_start_plug(&plug);
-	error = madvise_walk_vmas(mm, start, end, behavior,
-			madvise_vma_behavior);
+	if (vma) {
+		if (can_madv_lru_vma(vma))
+			error = madvise_dontneed_single_vma(vma, start, end);
+		else
+			error = -EINVAL;
+	} else {
+		error = madvise_walk_vmas(mm, start, end, behavior,
+					madvise_vma_behavior);
+	}
 	blk_finish_plug(&plug);
-	if (write)
+	if (vma)
+		vma_end_read(vma);
+	else if (write)
 		mmap_write_unlock(mm);
 	else
 		mmap_read_unlock(mm);
