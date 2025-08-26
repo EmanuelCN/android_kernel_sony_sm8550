@@ -8,6 +8,9 @@
 #define SCHED_FEAT_PLACE_LAG 0
 #define SCHED_FEAT_PLACE_DEADLINE_INITIAL 0
 #define SCHED_FEAT_RUN_TO_PARITY 0
+#ifdef CONFIG_SCHED_BORE
+#define SCHED_FEAT_RUN_TO_PARITY_BORE 0
+#endif /* CONFIG_SCHED_BORE */
 /*
  * Preserve relative virtual deadline on 'migration'.
  */
