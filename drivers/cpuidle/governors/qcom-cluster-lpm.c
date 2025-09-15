@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/cpu.h>
 #include <linux/cpuidle.h>
+#include <linux/cpumask.h>
 #include <linux/cpu_pm.h>
 #include <linux/kernel.h>
 #include <linux/ktime.h>
@@ -133,8 +134,8 @@ static void cluster_predict(struct lpm_cluster *cluster_gov)
 		for (i = 0; i < MAXSAMPLES; i++)
 			avg_residency += cluster_gov->history[i].residency;
 		do_div(avg_residency, MAXSAMPLES);
-		cluster_gov->pred_wakeup = ktime_add_us(avg_residency,
-							cluster_gov->now);
+		cluster_gov->pred_wakeup = ktime_add_us(cluster_gov->now,
+							avg_residency);
 		cluster_gov->predicted = true;
 		return;
 	}
@@ -144,23 +145,21 @@ static void cluster_predict(struct lpm_cluster *cluster_gov)
 	 * excluding clockgating mode, and they are more than fifty
 	 * percent restrict that and deeper modes.
 	 */
-	for (j = 1; j < genpd->state_count; j++) {
+	for (j = 0; j < genpd->state_count; j++) {
 		uint32_t count = 0;
-		u64 residency = genpd->states[j].residency_ns;
 
-		avg_residency = 0;
 		for (i = 0; i < MAXSAMPLES; i++) {
 
 			if ((cluster_gov->history[i].mode == j) &&
-			    (cluster_gov->history[i].residency <
-					do_div(residency, NSEC_PER_USEC))) {
+			    (cluster_gov->history[i].residency * NSEC_PER_USEC <
+			     genpd->states[j].residency_ns)) {
 				count++;
 				avg_residency +=
 					cluster_gov->history[i].residency;
 			}
 		}
 
-		if (count > PRED_PREMATURE_CNT) {
+		if (count >= PRED_PREMATURE_CNT) {
 			do_div(avg_residency, count);
 			cluster_gov->pred_wakeup = ktime_add_us(cluster_gov->now,
 								avg_residency);
@@ -199,7 +198,7 @@ static void clear_cluster_history(struct lpm_cluster *cluster_gov)
 static void update_cluster_history(struct lpm_cluster *cluster_gov)
 {
 	bool tmr = false;
-	uint32_t residency = 0;
+	u64 residency = 0;
 	struct generic_pm_domain *genpd = cluster_gov->genpd;
 	int idx = genpd->state_idx, samples_idx = cluster_gov->samples_idx;
 
@@ -253,6 +252,7 @@ static void cluster_power_down(struct lpm_cluster *cluster_gov)
 	struct generic_pm_domain *genpd = cluster_gov->genpd;
 	int idx = genpd->state_idx;
 	uint64_t residency;
+	struct lpm_cluster *gov;
 
 	if (idx < 0)
 		return;
@@ -260,13 +260,23 @@ static void cluster_power_down(struct lpm_cluster *cluster_gov)
 	cluster_gov->entry_time = cluster_gov->now;
 	cluster_gov->entry_idx = idx;
 	trace_cluster_pred_select(genpd->state_idx, genpd->next_wakeup,
-				  0, cluster_gov->predicted, cluster_gov->next_wakeup);
-	if (idx >= genpd->state_count - 1) {
+				  0, cluster_gov->predicted, cluster_gov->pred_wakeup);
+
+	if (num_possible_cpus() == cpumask_weight(genpd->cpus) &&
+	    idx == genpd->state_count - 1) {
 		clear_cpu_predict_history();
-		clear_cluster_history(cluster_gov);
+		list_for_each_entry(gov, &cluster_dev_list, list) {
+			if (!gov->initialized)
+				continue;
+
+			clear_cluster_history(gov);
+		}
 		return;
 	}
-	if (ktime_compare(cluster_gov->next_wakeup, cluster_gov->pred_wakeup))
+	if (idx == genpd->state_count - 1 || !cluster_gov->predicted)
+		return;
+
+	if (ktime_before(cluster_gov->next_wakeup, cluster_gov->pred_wakeup))
 		return;
 
 	residency = genpd->states[idx + 1].residency_ns;
