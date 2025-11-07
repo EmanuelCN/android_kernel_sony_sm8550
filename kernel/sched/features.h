@@ -124,3 +124,7 @@
 #define SCHED_FEAT_UTIL_EST_FASTUP 1
 
 #define SCHED_FEAT_LATENCY_WARN 0
+/*
+ * Do newidle balancing proportional to its success rate using randomization.
+ */
+#define SCHED_FEAT_NI_RANDOM 1
