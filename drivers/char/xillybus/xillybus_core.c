@@ -1949,7 +1949,7 @@ EXPORT_SYMBOL(xillybus_endpoint_remove);
 
 static int __init xillybus_init(void)
 {
-	xillybus_wq = alloc_workqueue(xillyname, 0, 0);
+	xillybus_wq = alloc_workqueue(xillyname, WQ_UNBOUND, 0);
 	if (!xillybus_wq)
 		return -ENOMEM;
 
