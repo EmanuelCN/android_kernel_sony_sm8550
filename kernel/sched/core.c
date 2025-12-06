@@ -5452,11 +5452,7 @@ EXPORT_PER_CPU_SYMBOL(kernel_cpustat);
  */
 static inline void prefetch_curr_exec_start(struct task_struct *p)
 {
-#ifdef CONFIG_FAIR_GROUP_SCHED
-	struct sched_entity *curr = (&p->se)->cfs_rq->curr;
-#else
-	struct sched_entity *curr = (&task_rq(p)->cfs)->curr;
-#endif
+	struct sched_entity *curr = task_rq(p)->cfs.curr;
 	prefetch(curr);
 	prefetch(&curr->exec_start);
 }
@@ -9256,7 +9252,7 @@ struct task_struct *pick_migrate_task(struct rq *rq)
 	for_each_class(class) {
 		next = class->pick_next_task(rq);
 		if (next) {
-			next->sched_class->put_prev_task(rq, next);
+			next->sched_class->put_prev_task(rq, next, NULL);
 			return next;
 		}
 	}

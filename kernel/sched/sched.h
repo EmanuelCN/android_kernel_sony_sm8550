@@ -469,17 +469,6 @@ struct task_group {
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 #define ROOT_TASK_GROUP_LOAD	NICE_0_LOAD
-
-/*
- * A weight of 0 or 1 can cause arithmetics problems.
- * A weight of a cfs_rq is the sum of weights of which entities
- * are queued on this cfs_rq, so a weight of a entity should not be
- * too large, so as the shares value of a task group.
- * (The default weight is 1024 - so there's no practical
- *  limitation from this.)
- */
-#define MIN_SHARES		(1UL <<  1)
-#define MAX_SHARES		(1UL << 18)
 #endif
 
 typedef int (*tg_visitor)(struct task_group *, void *);
@@ -552,6 +541,17 @@ static inline void set_task_rq_fair(struct sched_entity *se,
 struct cfs_bandwidth { };
 
 #endif	/* CONFIG_CGROUP_SCHED */
+
+/*
+ * A weight of 0 or 1 can cause arithmetics problems.
+ * A weight of a cfs_rq is the sum of weights of which entities
+ * are queued on this cfs_rq, so a weight of a entity should not be
+ * too large, so as the shares value of a task group.
+ * (The default weight is 1024 - so there's no practical
+ *  limitation from this.)
+ */
+#define MIN_SHARES		(1UL <<  1)
+#define MAX_SHARES		(1UL << 18)
 
 /*
  * u64_u32_load/u64_u32_store
@@ -633,6 +633,7 @@ struct cfs_rq {
 	/*
 	 * CFS load tracking
 	 */
+	struct sched_entity	*h_curr;
 	struct sched_avg	avg;
 #ifndef CONFIG_64BIT
 	u64			last_update_time_copy;
@@ -2198,6 +2199,7 @@ extern const u32		sched_prio_to_wmult[40];
 #define ENQUEUE_INITIAL		0x100
 #define ENQUEUE_DELAYED		0x200
 #define ENQUEUE_RQ_SELECTED	0x400
+#define ENQUEUE_QUEUED		0x00000800
 
 #define RETRY_TASK		((void *)-1UL)
 
