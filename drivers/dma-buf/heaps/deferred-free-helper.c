@@ -22,6 +22,29 @@ wait_queue_head_t freelist_waitqueue;
 struct task_struct *freelist_task;
 static DEFINE_SPINLOCK(free_list_lock);
 
+static __always_inline bool task_is_critical(void)
+{
+	if (!strncmp(current->comm, "surfaceflinger", TASK_COMM_LEN) ||
+	!strncmp(current->comm, "vendor.qti.display",
+			sizeof("vendor.qti.display") - 1) ||
+	!strncmp(current->comm, "vendor.qti.camera",
+			sizeof("vendor.qti.camera") - 1) ||
+	!strncmp(current->comm, "system_server", TASK_COMM_LEN) ||
+	!strncmp(current->comm, "cameraserver", TASK_COMM_LEN))
+		return true;
+
+	return false;
+}
+
+static __always_inline void boost_freelist_priority_for_critical(void)
+{
+	if (freelist_task && task_is_critical()) {
+		set_user_nice(freelist_task, 10);
+	} else if (freelist_task) {
+		set_user_nice(freelist_task, 19);
+	}
+}
+
 void deferred_free(struct deferred_freelist_item *item,
 		   void (*free)(struct deferred_freelist_item*,
 				enum df_reason),
@@ -36,6 +59,8 @@ void deferred_free(struct deferred_freelist_item *item,
 	spin_lock_irqsave(&free_list_lock, flags);
 	list_add(&item->list, &free_list);
 	list_nr_pages += nr_pages;
+	if (task_is_critical())
+		boost_freelist_priority_for_critical();
 	spin_unlock_irqrestore(&free_list_lock, flags);
 	wake_up(&freelist_waitqueue);
 }
