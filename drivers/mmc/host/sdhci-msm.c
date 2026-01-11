@@ -105,6 +105,7 @@
 #define CORE_IO_PAD_PWR_SWITCH_EN	BIT(15)
 #define CORE_IO_PAD_PWR_SWITCH	BIT(16)
 #define CORE_HC_SELECT_IN_EN	BIT(18)
+#define CORE_HC_SELECT_IN_SDR50	(4 << 19)
 #define CORE_HC_SELECT_IN_HS400	(6 << 19)
 #define CORE_HC_SELECT_IN_MASK	(7 << 19)
 #define CORE_HC_SELECT_IN_SDR50	(4 << 19)
@@ -183,12 +184,6 @@
 /* Max load for eMMC Vdd-io supply */
 #define MMC_VQMMC_MAX_LOAD_UA	325000
 
-/* Max load for SD Vdd supply */
-#define SD_VMMC_MAX_LOAD_UA	800000
-
-/* Max load for SD Vdd-io supply */
-#define SD_VQMMC_MAX_LOAD_UA	22000
-
 /*
  * Due to level shifter insertion, HS mode frequency is reduced to 37.5MHz
  * but clk's driver supply 37MHz only and uses ceil ops. So vote for
@@ -198,6 +193,7 @@
 
 /* Max number of log pages */
 #define SDHCI_MSM_MAX_LOG_SZ	10
+
 #define sdhci_msm_log_str(host, fmt, ...)	\
 	do {	\
 		if (host->sdhci_msm_ipc_log_ctx && host->dbg_en)	\
@@ -208,6 +204,12 @@
 #define VS_CAPABILITIES_SDR_50_SUPPORT BIT(0)
 #define VS_CAPABILITIES_SDR_104_SUPPORT BIT(1)
 #define VS_CAPABILITIES_DDR_50_SUPPORT BIT(2)
+
+/* Max load for SD Vdd supply */
+#define SD_VMMC_MAX_LOAD_UA	800000
+
+/* Max load for SD Vdd-io supply */
+#define SD_VQMMC_MAX_LOAD_UA	22000
 
 #define msm_host_readl(msm_host, host, offset) \
 	msm_host->var_ops->msm_readl_relaxed(host, offset)
@@ -1291,7 +1293,7 @@ static bool sdhci_msm_is_tuning_needed(struct sdhci_host *host)
 	struct mmc_ios *ios = &host->mmc->ios;
 
 	if (ios->timing == MMC_TIMING_UHS_SDR50 &&
-			host->flags & SDHCI_SDR50_NEEDS_TUNING)
+	    host->flags & SDHCI_SDR50_NEEDS_TUNING)
 		return true;
 
 	/*
@@ -1383,17 +1385,10 @@ static int sdhci_msm_execute_tuning(struct mmc_host *mmc, u32 opcode)
 	msm_host->tuning_done = 0;
 
 	if (ios.timing == MMC_TIMING_UHS_SDR50 &&
-			host->flags & SDHCI_SDR50_NEEDS_TUNING) {
-		/*
-		 * Bit1 SDHCI_CTRL_UHS_SDR50 of the Host Control 2 register is
-		 * already set by the sdhci_set_ios -> sdhci_msm_set_uhs_signaling().
-		 * It is not necessary to set it again here.
-		 */
-
+	    host->flags & SDHCI_SDR50_NEEDS_TUNING) {
 		config = readl_relaxed(host->ioaddr + msm_offset->core_vendor_spec);
-		config |= CORE_HC_SELECT_IN_EN;
 		config &= ~CORE_HC_SELECT_IN_MASK;
-		config |= CORE_HC_SELECT_IN_SDR50;
+		config |= CORE_HC_SELECT_IN_EN | CORE_HC_SELECT_IN_SDR50;
 		writel_relaxed(config, host->ioaddr + msm_offset->core_vendor_spec);
 	}
 
@@ -1963,11 +1958,11 @@ static void sdhci_msm_check_power_status(struct sdhci_host *host, u32 req_type)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_msm_host *msm_host = sdhci_pltfm_priv(pltfm_host);
+	struct mmc_host *mmc = host->mmc;
 	bool done = false;
 	u32 val = SWITCHABLE_SIGNALING_VOLTAGE;
 	const struct sdhci_msm_offset *msm_offset =
 					msm_host->offset;
-	struct mmc_host *mmc = host->mmc;
 
 	pr_debug("%s: %s: request %d curr_pwr_state %x curr_io_level %x\n",
 			mmc_hostname(host->mmc), __func__, req_type,

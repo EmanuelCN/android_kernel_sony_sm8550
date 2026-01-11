@@ -5,6 +5,7 @@
 #include <linux/array_size.h>
 #include <linux/stdarg.h>
 #include <linux/align.h>
+#include <linux/array_size.h>
 #include <linux/limits.h>
 #include <linux/linkage.h>
 #include <linux/stddef.h>

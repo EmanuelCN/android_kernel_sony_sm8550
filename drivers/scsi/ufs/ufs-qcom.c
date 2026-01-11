@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/acpi.h>
@@ -1394,6 +1394,10 @@ static int ufs_qcom_link_startup_notify(struct ufs_hba *hba,
 				strcmp(android_boot_dev, dev_name(dev)))
 			return -ENODEV;
 
+		ufshcd_dme_set(hba, UIC_ARG_MIB(PA_AVAILTXDATALANES),
+			       hba->lanes_per_direction);
+		ufshcd_dme_set(hba, UIC_ARG_MIB(PA_AVAILRXDATALANES),
+			       hba->lanes_per_direction);
 
 		if (ufs_qcom_cfg_timers(hba, UFS_PWM_G1, SLOWAUTO_MODE,
 					0, true)) {
@@ -2074,8 +2078,8 @@ struct ufs_qcom_dev_params ufs_qcom_cap;
 		ufs_qcom_cap.pwm_tx_gear = host->limit_tx_pwm_gear;
 		ufs_qcom_cap.pwm_rx_gear = host->limit_rx_pwm_gear;
 
-		ufs_qcom_cap.tx_lanes = UFS_QCOM_LIMIT_NUM_LANES_TX;
-		ufs_qcom_cap.rx_lanes = UFS_QCOM_LIMIT_NUM_LANES_RX;
+		ufs_qcom_cap.tx_lanes = hba->lanes_per_direction;
+		ufs_qcom_cap.rx_lanes = hba->lanes_per_direction;
 
 		ufs_qcom_cap.rx_pwr_pwm = UFS_QCOM_LIMIT_RX_PWR_PWM;
 		ufs_qcom_cap.tx_pwr_pwm = UFS_QCOM_LIMIT_TX_PWR_PWM;
@@ -2381,6 +2385,8 @@ static void ufs_qcom_advertise_quirks(struct ufs_hba *hba)
 
 	if (host->disable_lpm)
 		hba->quirks |= UFSHCD_QUIRK_BROKEN_AUTO_HIBERN8;
+	else
+		hba->quirks |= UFSHCI_QUIRK_SKIP_MANUAL_WB_FLUSH_CTRL;
 
 #if IS_ENABLED(CONFIG_SCSI_UFS_CRYPTO_QTI)
 	hba->quirks |= UFSHCD_QUIRK_CUSTOM_KEYSLOT_MANAGER;
@@ -2397,10 +2403,12 @@ static void ufs_qcom_set_caps(struct ufs_hba *hba)
 		UFSHCD_CAP_CLK_SCALING |
 		UFSHCD_CAP_WB_WITH_CLK_SCALING |
 		UFSHCD_CAP_AUTO_BKOPS_SUSPEND;
-		if (!host->disable_wb_support)
-			hba->caps |= UFSHCD_CAP_WB_EN;
 		hba->caps |= UFSHCD_CAP_AGGR_POWER_COLLAPSE;
 	}
+
+	if (!host->disable_wb_support)
+		hba->caps |= UFSHCD_CAP_WB_EN;
+
 
 	hba->caps |= UFSHCD_CAP_CRYPTO;
 
