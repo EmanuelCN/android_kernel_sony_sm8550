@@ -11864,9 +11864,9 @@ static void nohz_balancer_kick(struct rq *rq)
 
 	/*
 	 * None are in tickless mode and hence no need for NOHZ idle load
-	 * balancing:
+	 * balancing
 	 */
-	if (likely(!atomic_read(&nohz.nr_cpus)))
+	if (unlikely(!atomic_read(&nohz.nr_cpus)))
 		return;
 
         trace_android_rvh_sched_nohz_balancer_kick(rq, &flags, &done);
