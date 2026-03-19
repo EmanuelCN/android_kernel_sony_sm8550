@@ -13,6 +13,7 @@
 
 #include <linux/rcu_node_tree.h>
 #include <linux/completion.h>
+#include <linux/irq_work_types.h>
 
 struct srcu_node;
 struct srcu_struct;
@@ -95,6 +96,7 @@ struct srcu_usage {
 	unsigned long reschedule_jiffies;
 	unsigned long reschedule_count;
 	struct delayed_work work;
+	struct irq_work irq_work;
 	struct srcu_struct *srcu_ssp;
 };
 
