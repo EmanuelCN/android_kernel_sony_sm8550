@@ -15,6 +15,7 @@
 #include <linux/of_platform.h>
 #include <linux/pm_opp.h>
 #include <linux/slab.h>
+#include <linux/cpuhotplug.h>
 #include <linux/spinlock.h>
 #include <linux/qcom-cpufreq-hw.h>
 #include <linux/topology.h>
@@ -81,6 +82,13 @@ struct qcom_cpufreq_data {
 	unsigned long dcvsh_freq_limit;
 	struct device_attribute freq_limit_attr;
 };
+
+struct qcom_cpufreq_boost {
+	struct qcom_cpufreq_data *data;
+	unsigned int max_index;
+};
+
+static DEFINE_PER_CPU(struct qcom_cpufreq_boost, cpufreq_boost_pcpu);
 
 static unsigned long cpu_hw_rate, xo_rate;
 static bool icc_scaling_enabled;
@@ -224,6 +232,7 @@ static int qcom_cpufreq_hw_read_lut(struct device *cpu_dev,
 {
 	u32 data, src, lval, i, core_count, prev_freq = 0, freq;
 	u32 volt, max_cc = 0;
+	int cpu;
 	struct cpufreq_frequency_table	*table;
 	struct dev_pm_opp *opp;
 	unsigned long rate;
@@ -319,6 +328,11 @@ static int qcom_cpufreq_hw_read_lut(struct device *cpu_dev,
 
 	table[i].frequency = CPUFREQ_TABLE_END;
 	policy->freq_table = table;
+
+	for_each_cpu(cpu, policy->cpus) {
+		per_cpu(cpufreq_boost_pcpu, cpu).data = drv_data;
+		per_cpu(cpufreq_boost_pcpu, cpu).max_index = i - 1;
+	}
 
 	for (i = 0; i < LUT_MAX_ENTRIES && table[i].frequency != CPUFREQ_TABLE_END; i++) {
 		if (table[i].flags == CPUFREQ_BOOST_FREQ)
@@ -729,6 +743,18 @@ static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.boost_enabled	= true,
 };
 
+static int cpuhp_qcom_online(unsigned int cpu)
+{
+	struct qcom_cpufreq_boost *b = &per_cpu(cpufreq_boost_pcpu, cpu);
+	struct qcom_cpufreq_data *data = b->data;
+
+	if (!data)
+		return 0;
+
+	writel_relaxed(b->max_index, data->base + data->soc_data->reg_perf_state);
+	return 0;
+}
+
 static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 {
 	struct device *cpu_dev;
@@ -764,10 +790,17 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 		spin_lock_init(&qcom_cpufreq_counter[cpu].lock);
 
 	ret = cpufreq_register_driver(&cpufreq_qcom_hw_driver);
-	if (ret)
+	if (ret) {
 		dev_err(&pdev->dev, "CPUFreq HW driver failed to register\n");
-	else
+	} else {
 		dev_dbg(&pdev->dev, "QCOM CPUFreq HW driver initialized\n");
+		ret = cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE,
+						"qcom-cpufreq:online",
+						cpuhp_qcom_online, NULL);
+		if (ret)
+			dev_err(&pdev->dev, "CPUHP callback setup failed, rc=%d\n", ret);
+		ret = 0;
+	}
 
 	return ret;
 }
