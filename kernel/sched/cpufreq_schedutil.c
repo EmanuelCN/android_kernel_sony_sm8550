@@ -248,13 +248,14 @@ static inline unsigned long sugov_apply_dvfs_headroom(unsigned long util,
 {
 	unsigned long delta, headroom;
 	unsigned long capped_util = min(util, capacity);
+	unsigned long delta_t = capacity - threshold;
 
 	delta = capacity - capped_util;
-	headroom = (delta * delta) >> 11;
+	headroom = (delta * delta * delta * 5) / (delta_t * capacity * 16);
 
 	if (capped_util < threshold)
 		headroom = (headroom * capped_util * capped_util) /
-			  (threshold * threshold);
+			(threshold * threshold);
 
 	return capped_util + headroom;
 }
@@ -659,9 +660,9 @@ static void sugov_build_dvfs_headroom_lut(struct sugov_policy *sg_policy)
 	if (sg_policy->dvfs_capacity == capacity)
 		return;
 
-	sg_policy->dvfs_capacity = capacity;
+	threshold = (capacity * 15) / 100;
 
-	threshold = (capacity >> 3) + (capacity >> 4);
+	sg_policy->dvfs_capacity = capacity;
 
 	for (util = 0; util <= SCHED_CAPACITY_SCALE; util++)
 		sg_policy->dvfs_headroom_lut[util] =
