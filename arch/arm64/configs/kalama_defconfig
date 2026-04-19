@@ -368,8 +368,6 @@ CONFIG_ARCH_KALAMA=y
 # CONFIG_ARCH_XGENE is not set
 # CONFIG_ARCH_ZYNQMP is not set
 CONFIG_MACH_SONY_DEVICE=y
-# CONFIG_MACH_SONY_PDX234 is not set
-CONFIG_MACH_SONY_PDX237=y
 # end of Platform selection
 
 #
