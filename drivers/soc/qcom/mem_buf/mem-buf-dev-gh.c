@@ -285,50 +285,13 @@ EXPORT_SYMBOL(mem_buf_unmap_mem_s2);
 
 int mem_buf_map_mem_s1(struct gh_sgl_desc *sgl_desc)
 {
-	u64 base, size;
-	int i, ret;
-
-	for (i = 0; i < sgl_desc->n_sgl_entries; i++) {
-		base = sgl_desc->sgl_entries[i].ipa_base;
-		size = sgl_desc->sgl_entries[i].size;
-
-		ret = add_memory_subsection(numa_node_id(), base, size);
-		if (ret) {
-			pr_err("%s: failed to add memory base=%llx, size=%llx, ret=%d\n",
-				__func__, base, size, ret);
-			goto out;
-		}
-	}
-
-	return 0;
-
-out:
-	for (i--; i >= 0; i--) {
-		base = sgl_desc->sgl_entries[i].ipa_base;
-		size = sgl_desc->sgl_entries[i].size;
-		remove_memory_subsection(base, size);
-	}
-
-	return ret;
+	return -EOPNOTSUPP;
 }
 EXPORT_SYMBOL(mem_buf_map_mem_s1);
 
 int mem_buf_unmap_mem_s1(struct gh_sgl_desc *sgl_desc)
 {
-	u64 base, size;
-	int i, ret = 0;
-
-	for (i = 0; i < sgl_desc->n_sgl_entries; i++) {
-		base = sgl_desc->sgl_entries[i].ipa_base;
-		size = sgl_desc->sgl_entries[i].size;
-
-		ret = remove_memory_subsection(base, size);
-		if (ret)
-			pr_err("%s: failed to remove memory base=%llx, size=%llx\n, ret=%d\n",
-				__func__, base, size, ret);
-	}
-
-	return ret;
+	return -EOPNOTSUPP;
 }
 EXPORT_SYMBOL(mem_buf_unmap_mem_s1);
 
