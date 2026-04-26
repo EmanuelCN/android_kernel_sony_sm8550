@@ -250,8 +250,15 @@ static struct scale_freq_data tensor_aio_sfd = {
 static void tensor_aio_ttwu(void *data, struct task_struct *p)
 {
 	int cpu = raw_smp_processor_id();
+	struct cpu_pmu *pmu = &per_cpu(cpu_pmu_evs, cpu);
+	u64 now;
 
 	if (unlikely(in_reboot || !cpu_active(cpu)))
+		return;
+
+	now = get_cntpct();
+	/* Skip if less than the minimum sample period since last update */
+	if (now - READ_ONCE(pmu->cur.cntpct) < cpu_min_sample_cntpct)
 		return;
 
 	update_freq_scale(false);
