@@ -6120,6 +6120,7 @@ static void wq_adjust_max_active(struct workqueue_struct *wq)
 	} while (activated);
 }
 
+__printf(1, 0)
 static struct workqueue_struct *alloc_workqueue_va(const char *fmt,
 						   unsigned int flags,
 						   int max_active, va_list args)
