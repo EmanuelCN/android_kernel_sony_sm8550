@@ -12,7 +12,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/slab.h>
-#include <linux/workqueue.h> /* FIXME: is system_long_wq the best choice? */
+#include <linux/workqueue.h>
 
 #define TU_CUR_VERSION 0x01
 
@@ -115,7 +115,7 @@ static int i2c_slave_testunit_slave_cb(struct i2c_client *client,
 	case I2C_SLAVE_STOP:
 		if (tu->reg_idx == TU_NUM_REGS) {
 			set_bit(TU_FLAG_IN_PROCESS, &tu->flags);
-			queue_delayed_work(system_long_wq, &tu->worker,
+			queue_delayed_work(system_dfl_long_wq, &tu->worker,
 					   msecs_to_jiffies(10 * tu->regs[TU_REG_DELAY]));
 		}
 
