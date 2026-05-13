@@ -186,8 +186,16 @@ static int qcom_cpufreq_hw_target_index(struct cpufreq_policy *policy,
 	struct qcom_cpufreq_data *data = policy->driver_data;
 	const struct qcom_cpufreq_soc_data *soc_data = data->soc_data;
 	unsigned long freq = policy->freq_table[index].frequency;
+	unsigned long flags;
 
+	/*
+	 * Disable IRQs around the frequency set so that the timestamp
+	 * recorded by FIE is as close to the actual MMIO write as possible.
+	 */
+	local_irq_save(flags);
 	writel_relaxed(index, data->base + soc_data->reg_perf_state);
+	fie_rate_set(policy->cpu, freq);
+	local_irq_restore(flags);
 
 	if (icc_scaling_enabled)
 		qcom_cpufreq_set_bw(policy, freq);
@@ -221,11 +229,15 @@ static unsigned int qcom_cpufreq_hw_fast_switch(struct cpufreq_policy *policy,
 	struct qcom_cpufreq_data *data = policy->driver_data;
 	const struct qcom_cpufreq_soc_data *soc_data = data->soc_data;
 	unsigned int index;
+	unsigned int freq;
 
 	index = policy->cached_resolved_idx;
-	writel_relaxed(index, data->base + soc_data->reg_perf_state);
+	freq = policy->freq_table[index].frequency;
 
-	return policy->freq_table[index].frequency;
+	writel_relaxed(index, data->base + soc_data->reg_perf_state);
+	fie_rate_set(policy->cpu, freq);
+
+	return freq;
 }
 
 static int qcom_cpufreq_hw_read_lut(struct device *cpu_dev,
@@ -452,6 +464,14 @@ static void qcom_lmh_dcvs_notify(struct qcom_cpufreq_data *data)
 		mod_delayed_work(system_highpri_wq, &data->throttle_work,
 				 msecs_to_jiffies(10));
 	}
+
+	/*
+	 * Route the LMh-reported throttled frequency through FIE's thermal
+	 * pressure aggregation. FIE combines this with its own measured HW
+	 * throttle detection for a more accurate thermal pressure report.
+	 */
+	fie_cpufreq_pressure(cpu, thermal_pressure >= policy->cpuinfo.max_freq ?
+			     UINT_MAX : thermal_pressure);
 
 	trace_dcvsh_freq(cpu, qcom_cpufreq_hw_get(cpu), throttled_freq);
 	arch_update_thermal_pressure(policy->related_cpus, thermal_pressure);
