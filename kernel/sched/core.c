@@ -4497,6 +4497,8 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 
 	trace_android_rvh_sched_fork_init(p);
 
+	p->util_avg_dequeued		= 0;
+
 #ifdef CONFIG_SCHEDSTATS
 	/* Even if schedstat is disabled, there should not be garbage */
 	memset(&p->se.statistics, 0, sizeof(p->se.statistics));

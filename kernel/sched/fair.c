@@ -4672,6 +4672,11 @@ static inline unsigned long task_util(struct task_struct *p)
 	return READ_ONCE(p->se.avg.util_avg);
 }
 
+static inline unsigned long task_util_dequeued(struct task_struct *p)
+{
+	return READ_ONCE(p->util_avg_dequeued);
+}
+
 static inline unsigned long task_runnable(struct task_struct *p)
 {
 	return READ_ONCE(p->se.avg.runnable_avg);
@@ -4765,23 +4770,34 @@ static inline void util_est_update(struct cfs_rq *cfs_rq,
 	 * dequeue/enqueue in util_est_update_running() stays balanced.
 	 */
 	if (!task_sleep) {
-		u64 delta = p->se.delta_exec;
-		unsigned int prev = max(ue.ewma,
-					ue.enqueued & ~UTIL_AVG_UNCHANGED);
-		unsigned int next;
-
-		do_div(delta, 1000);
-		next = approximate_util_avg(prev, delta);
 		/*
-		 * Keep accumulating delta_exec if it is too small to
-		 * cause a change.
+		 * Only project forward when the task is actually running
+		 * hotter than it was at its last dequeue. If util has not
+		 * grown past the dequeue snapshot by more than the margin,
+		 * the dequeue-time EWMA is still a good estimate and we just
+		 * keep accumulating delta_exec for later.
 		 */
-		if (next != prev) {
-			ue.ewma = next;
-			ue.enqueued = next;
-			p->se.delta_exec = 0;
+		if (task_util(p) > task_util_dequeued(p) &&
+		    task_util(p) - task_util_dequeued(p) > UTIL_EST_MARGIN) {
+			u64 delta = p->se.delta_exec;
+			unsigned int prev = max(ue.ewma,
+						ue.enqueued & ~UTIL_AVG_UNCHANGED);
+			unsigned int next;
+
+			do_div(delta, 1000);
+			next = approximate_util_avg(prev, delta);
+			/*
+			 * Keep accumulating delta_exec if it is too small
+			 * to cause a change.
+			 */
+			if (next != prev) {
+				ue.ewma = next;
+				ue.enqueued = next;
+				p->se.delta_exec = 0;
+			}
+			goto done_running;
 		}
-		goto done;
+		return;
 	} else {
 		p->se.delta_exec = 0;
 	}
@@ -4801,6 +4817,10 @@ static inline void util_est_update(struct cfs_rq *cfs_rq,
 	 * to smooth utilization decreases.
 	 */
 	ue.enqueued = task_util(p);
+
+	if (!task_on_rq_migrating(p))
+		p->util_avg_dequeued = ue.enqueued;
+
 	if (sched_feat(UTIL_EST_FASTUP)) {
 		if (ue.ewma < ue.enqueued) {
 			ue.ewma = ue.enqueued;
@@ -4850,6 +4870,7 @@ static inline void util_est_update(struct cfs_rq *cfs_rq,
 	ue.ewma >>= UTIL_EST_WEIGHT_SHIFT;
 done:
 	ue.enqueued |= UTIL_AVG_UNCHANGED;
+done_running:
 	WRITE_ONCE(p->se.avg.util_est, ue);
 
 	trace_sched_util_est_se_tp(&p->se);
