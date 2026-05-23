@@ -226,8 +226,7 @@ int ___update_load_sum(u64 now, struct sched_avg *sa,
 	 * Step 1: accumulate *_sum since last_update_time. If we haven't
 	 * crossed period boundaries, finish.
 	 */
-	if (!accumulate_sum(delta, sa, load, runnable, running))
-		return 0;
+	accumulate_sum(delta, sa, load, runnable, running);
 
 	return 1;
 }
