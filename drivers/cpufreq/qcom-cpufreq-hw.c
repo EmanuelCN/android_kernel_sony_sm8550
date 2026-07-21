@@ -474,7 +474,6 @@ static void qcom_lmh_dcvs_notify(struct qcom_cpufreq_data *data)
 			     UINT_MAX : thermal_pressure);
 
 	trace_dcvsh_freq(cpu, qcom_cpufreq_hw_get(cpu), throttled_freq);
-	arch_update_thermal_pressure(policy->related_cpus, thermal_pressure);
 	data->dcvsh_freq_limit = thermal_pressure;
 
 out:
@@ -607,7 +606,7 @@ static void qcom_cpufreq_hw_lmh_exit(struct qcom_cpufreq_data *data)
 	data->is_irq_requested = false;
 	cancel_delayed_work_sync(&data->throttle_work);
 
-	arch_update_thermal_pressure(policy->related_cpus, policy->cpuinfo.max_freq);
+	fie_cpufreq_pressure(cpumask_first(policy->related_cpus), UINT_MAX);
 	cpu_dev = get_cpu_device(cpumask_first(policy->related_cpus));
 	device_remove_file(cpu_dev, &data->freq_limit_attr);
 	trace_dcvsh_throttle(cpumask_first(policy->related_cpus), 0);
