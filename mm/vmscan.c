@@ -2334,6 +2334,10 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	__count_vm_events(PGSTEAL_ANON + file, nr_reclaimed);
 	spin_unlock_irq(&lruvec->lru_lock);
 
+	if (nr_scanned > nr_reclaimed)
+		mod_lruvec_state(lruvec, PGROTATE_ANON + file,
+				 nr_scanned - nr_reclaimed);
+
 	lru_note_cost(lruvec, file, stat.nr_pageout);
 	mem_cgroup_uncharge_list(&page_list);
 	free_unref_page_list(&page_list);
@@ -2396,7 +2400,7 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	LIST_HEAD(l_inactive);
 	struct page *page;
 	unsigned nr_deactivate, nr_activate;
-	unsigned nr_rotated = 0;
+	unsigned nr_rotated = 0, nr_protected = 0;
 	int file = is_file_lru(lru);
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 	bool bypass = false;
@@ -2437,7 +2441,7 @@ static void shrink_active_list(unsigned long nr_to_scan,
 
 		trace_android_vh_page_should_be_protected(page, &should_protect);
 		if (unlikely(should_protect)) {
-			nr_rotated += thp_nr_pages(page);
+			nr_protected += thp_nr_pages(page);
 			list_add(&page->lru, &l_active);
 			continue;
 		}
@@ -2488,10 +2492,14 @@ skip_page_referenced:
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, -nr_taken);
 	spin_unlock_irq(&lruvec->lru_lock);
 
+	if (nr_rotated)
+		mod_lruvec_state(lruvec, PGROTATE_FILE, nr_rotated);
+
 	mem_cgroup_uncharge_list(&l_active);
 	free_unref_page_list(&l_active);
 	trace_mm_vmscan_lru_shrink_active(pgdat->node_id, nr_taken, nr_activate,
-			nr_deactivate, nr_rotated, sc->priority, file);
+			nr_deactivate, nr_rotated + nr_protected,
+			sc->priority, file);
 }
 
 unsigned long reclaim_pages(struct list_head *page_list)
@@ -4663,7 +4671,7 @@ bool isolate_page(struct lruvec *lruvec, struct page *page, struct scan_control 
 EXPORT_SYMBOL_GPL(isolate_page);
 
 static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
-		      int type, int tier, struct list_head *list)
+		      int type, int tier, int *nr_isolated, struct list_head *list)
 {
 	int i;
 	int gen;
@@ -4730,6 +4738,7 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 	__count_memcg_events(memcg, item, isolated);
 	__count_memcg_events(memcg, PGREFILL, sorted);
 	__count_vm_events(PGSCAN_ANON + type, isolated);
+	*nr_isolated = isolated;
 
 	/*
 	 * There might not be eligible pages due to reclaim_idx, may_unmap and
@@ -4788,7 +4797,7 @@ static int get_type_to_scan(struct lruvec *lruvec, int swappiness, int *tier_idx
 }
 
 static int isolate_pages(struct lruvec *lruvec, struct scan_control *sc, int swappiness,
-			 int *type_scanned, struct list_head *list)
+			 int *type_scanned, int *nr_isolated, struct list_head *list)
 {
 	int i;
 	int type;
@@ -4816,7 +4825,7 @@ static int isolate_pages(struct lruvec *lruvec, struct scan_control *sc, int swa
 		if (tier < 0)
 			tier = get_tier_idx(lruvec, type);
 
-		scanned = scan_pages(lruvec, sc, type, tier, list);
+		scanned = scan_pages(lruvec, sc, type, tier, nr_isolated, list);
 		if (scanned)
 			break;
 
@@ -4835,6 +4844,8 @@ static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swapp
 	int type;
 	int scanned;
 	int reclaimed;
+	int nr_isolated = 0;
+	unsigned long total_reclaimed = 0;
 	LIST_HEAD(list);
 	LIST_HEAD(clean);
 	struct page *page;
@@ -4848,7 +4859,8 @@ static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swapp
 
 	spin_lock_irq(&lruvec->lru_lock);
 
-	scanned = isolate_pages(lruvec, sc, swappiness, &type, &list);
+	scanned = isolate_pages(lruvec, sc, swappiness, &type,
+				&nr_isolated, &list);
 
 	scanned += try_to_inc_min_seq(lruvec, swappiness);
 
@@ -4862,6 +4874,7 @@ static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swapp
 retry:
 	reclaimed = shrink_page_list(&list, pgdat, sc, &stat, false);
 	sc->nr_reclaimed += reclaimed;
+	total_reclaimed += reclaimed;
 
 	list_for_each_entry_safe_reverse(page, next, &list, lru) {
 		bool bypass = false;
@@ -4924,6 +4937,10 @@ retry:
 		skip_retry = true;
 		goto retry;
 	}
+
+	if (nr_isolated > total_reclaimed)
+		mod_lruvec_state(lruvec, PGROTATE_ANON + type,
+				 nr_isolated - total_reclaimed);
 
 	if (need_swapping && type == LRU_GEN_ANON)
 		*need_swapping = true;

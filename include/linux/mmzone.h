@@ -214,6 +214,8 @@ enum node_stat_item {
 #ifdef CONFIG_SWAP
 	NR_SWAPCACHE,
 #endif
+	PGROTATE_ANON,
+	PGROTATE_FILE,
 	NR_VM_NODE_STAT_ITEMS
 };
 

@@ -1240,6 +1240,8 @@ const char * const vmstat_text[] = {
 #ifdef CONFIG_SWAP
 	"nr_swapcached",
 #endif
+	"pgrotate_anon",
+	"pgrotate_file",
 
 	/* enum writeback_stat_item counters */
 	"nr_dirty_threshold",
