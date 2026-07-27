@@ -1242,6 +1242,8 @@ const char * const vmstat_text[] = {
 #endif
 	"pgrotate_anon",
 	"pgrotate_file",
+	"nr_vmscan_write_anon",
+	"nr_vmscan_write_file",
 
 	/* enum writeback_stat_item counters */
 	"nr_dirty_threshold",

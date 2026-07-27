@@ -1104,6 +1104,7 @@ static pageout_t pageout(struct page *page, struct address_space *mapping)
 		return PAGE_KEEP;
 
 	if (clear_page_dirty_for_io(page)) {
+		bool file = page_is_file_lru(page);
 		int res;
 		struct writeback_control wbc = {
 			.sync_mode = WB_SYNC_NONE,
@@ -1128,6 +1129,9 @@ static pageout_t pageout(struct page *page, struct address_space *mapping)
 		}
 		trace_mm_vmscan_writepage(page);
 		inc_node_page_state(page, NR_VMSCAN_WRITE);
+		/* Keep file writeback from reclaim on the file side of the cost. */
+		mod_lruvec_page_state(page, NR_VMSCAN_WRITE_ANON + file,
+				     thp_nr_pages(page));
 		return PAGE_SUCCESS;
 	}
 
@@ -1752,8 +1756,6 @@ retry:
 			case PAGE_ACTIVATE:
 				goto activate_locked;
 			case PAGE_SUCCESS:
-				stat->nr_pageout += thp_nr_pages(page);
-
 				if (PageWriteback(page))
 					goto keep;
 				if (PageDirty(page))
@@ -2338,7 +2340,6 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		mod_lruvec_state(lruvec, PGROTATE_ANON + file,
 				 nr_scanned - nr_reclaimed);
 
-	lru_note_cost(lruvec, file, stat.nr_pageout);
 	mem_cgroup_uncharge_list(&page_list);
 	free_unref_page_list(&page_list);
 
@@ -2634,8 +2635,11 @@ enum scan_balance {
 
 static void prepare_scan_count(pg_data_t *pgdat, struct scan_control *sc)
 {
-	unsigned long file;
+	struct lru_cost *anon_cost, *file_cost;
 	struct lruvec *target_lruvec;
+	unsigned long lrusize;
+	unsigned long file;
+	int type;
 
 	if (lru_gen_enabled())
 		return;
@@ -2649,12 +2653,46 @@ static void prepare_scan_count(pg_data_t *pgdat, struct scan_control *sc)
 	mem_cgroup_flush_stats();
 
 	/*
-	 * Determine the scan balance between anon and file LRUs.
+	 * Derive scan balance from rotations, refaults and reclaim writeback
+	 * since the last snapshot. Read cumulative counters without clamping
+	 * so unsigned subtraction remains valid when they wrap.
 	 */
-	spin_lock_irq(&target_lruvec->lru_lock);
-	sc->anon_cost = target_lruvec->anon_cost;
-	sc->file_cost = target_lruvec->file_cost;
-	spin_unlock_irq(&target_lruvec->lru_lock);
+	spin_lock(&target_lruvec->cost_lock);
+	for (type = 0; type < ANON_AND_FILE; type++) {
+		struct lru_cost *cost = &target_lruvec->cost[type];
+		unsigned long rotated, io, nr_rotated, nr_io;
+
+		rotated = lruvec_page_state_monotonic(target_lruvec,
+						     PGROTATE_ANON + type);
+		io = lruvec_page_state_monotonic(target_lruvec,
+						 WORKINGSET_RESTORE_BASE + type);
+		io += lruvec_page_state_monotonic(target_lruvec,
+						  NR_VMSCAN_WRITE_ANON + type);
+
+		nr_rotated = rotated - cost->last_rotated;
+		nr_io = io - cost->last_io;
+
+		/* Weigh I/O more heavily than CPU work spent rotating pages. */
+		cost->count += nr_io * SWAP_CLUSTER_MAX + nr_rotated;
+		cost->last_rotated = rotated;
+		cost->last_io = io;
+	}
+
+	anon_cost = &target_lruvec->cost[0];
+	file_cost = &target_lruvec->cost[1];
+	lrusize = lruvec_page_state(target_lruvec, NR_INACTIVE_ANON) +
+		  lruvec_page_state(target_lruvec, NR_ACTIVE_ANON) +
+		  lruvec_page_state(target_lruvec, NR_INACTIVE_FILE) +
+		  lruvec_page_state(target_lruvec, NR_ACTIVE_FILE);
+
+	while (anon_cost->count + file_cost->count > lrusize / 4) {
+		anon_cost->count /= 2;
+		file_cost->count /= 2;
+	}
+
+	sc->anon_cost = anon_cost->count;
+	sc->file_cost = file_cost->count;
+	spin_unlock(&target_lruvec->cost_lock);
 
 	/*
 	 * Target desirable inactive:active list ratios for the anon

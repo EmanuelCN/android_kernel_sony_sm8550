@@ -4158,8 +4158,10 @@ static int memcg_stat_show(struct seq_file *m, void *v)
 		for_each_online_pgdat(pgdat) {
 			mz = memcg->nodeinfo[pgdat->node_id];
 
-			anon_cost += mz->lruvec.anon_cost;
-			file_cost += mz->lruvec.file_cost;
+			spin_lock(&mz->lruvec.cost_lock);
+			anon_cost += mz->lruvec.cost[0].count;
+			file_cost += mz->lruvec.cost[1].count;
+			spin_unlock(&mz->lruvec.cost_lock);
 		}
 		seq_printf(m, "anon_cost %lu\n", anon_cost);
 		seq_printf(m, "file_cost %lu\n", file_cost);

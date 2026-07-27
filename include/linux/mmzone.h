@@ -216,6 +216,8 @@ enum node_stat_item {
 #endif
 	PGROTATE_ANON,
 	PGROTATE_FILE,
+	NR_VMSCAN_WRITE_ANON,
+	NR_VMSCAN_WRITE_FILE,
 	NR_VM_NODE_STAT_ITEMS
 };
 
@@ -503,6 +505,12 @@ static inline void lru_gen_exit_memcg(struct mem_cgroup *memcg)
 
 #endif /* CONFIG_LRU_GEN */
 
+struct lru_cost {
+	unsigned long		count;
+	unsigned long		last_rotated;
+	unsigned long		last_io;
+};
+
 struct lruvec {
 	struct list_head		lists[NR_LRU_LISTS];
 	/* per lruvec lru_lock for memcg */
@@ -511,9 +519,11 @@ struct lruvec {
 	 * These track the cost of reclaiming one LRU - file or anon -
 	 * over the other. As the observed cost of reclaiming one LRU
 	 * increases, the reclaim scan balance tips toward the other.
+	 * Updated and decayed at prepare_scan_count() time.
 	 */
-	unsigned long			anon_cost;
-	unsigned long			file_cost;
+	struct lru_cost			cost[ANON_AND_FILE];
+	/* Protects cost[]. */
+	spinlock_t			cost_lock;
 	/* Non-resident age, driven by LRU movement */
 	atomic_long_t			nonresident_age;
 	/* Refaults at the time of last reclaim cycle */
