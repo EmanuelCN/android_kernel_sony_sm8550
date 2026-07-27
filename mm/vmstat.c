@@ -1039,6 +1039,12 @@ unsigned long node_page_state(struct pglist_data *pgdat,
 
 	return node_page_state_pages(pgdat, item);
 }
+
+unsigned long node_page_state_monotonic(struct pglist_data *pgdat,
+					enum node_stat_item item)
+{
+	return atomic_long_read(&pgdat->vm_stat[item]);
+}
 #endif
 
 #ifdef CONFIG_COMPACTION
