@@ -2179,7 +2179,6 @@ void kvfree_rcu_barrier(void)
 		}
 	}
 }
-EXPORT_SYMBOL_GPL(kvfree_rcu_barrier);
 
 static unsigned long
 kfree_rcu_shrink_count(struct shrinker *shrink, struct shrink_control *sc)
