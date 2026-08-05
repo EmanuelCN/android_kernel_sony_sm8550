@@ -6184,11 +6184,9 @@ static struct workqueue_struct *alloc_workqueue_va(const char *fmt,
 	if (!wq)
 		return NULL;
 
-	if (flags & WQ_UNBOUND) {
-		wq->attrs = alloc_workqueue_attrs();
-		if (!wq->attrs)
-			goto err_free_wq;
-	}
+	wq->attrs = alloc_workqueue_attrs();
+	if (!wq->attrs)
+		goto err_free_wq;
 
 	name_len = vsnprintf(wq->name, sizeof(wq->name), fmt, args);
 
