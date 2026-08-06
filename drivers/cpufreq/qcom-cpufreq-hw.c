@@ -79,6 +79,7 @@ struct qcom_cpufreq_data {
 	struct delayed_work throttle_work;
 	struct cpufreq_policy *policy;
 	unsigned long dcvsh_freq_limit;
+	unsigned long last_lmh_freq;
 	struct device_attribute freq_limit_attr;
 };
 
@@ -451,9 +452,15 @@ static void qcom_lmh_dcvs_notify(struct qcom_cpufreq_data *data)
 	 * Route the LMh-reported throttled frequency through FIE's thermal
 	 * pressure aggregation. FIE combines this with its own measured HW
 	 * throttle detection for a more accurate thermal pressure report.
+	 * Only re-send the cpufreq thermal source when the LMh-reported cap
+	 * actually changes.
 	 */
-	fie_cpufreq_pressure(cpu, thermal_pressure >= policy->cpuinfo.max_freq ?
-			     UINT_MAX : thermal_pressure);
+	if (data->last_lmh_freq != thermal_pressure) {
+		data->last_lmh_freq = thermal_pressure;
+		fie_cpufreq_pressure(cpu,
+				     thermal_pressure >= policy->cpuinfo.max_freq ?
+				     UINT_MAX : thermal_pressure);
+	}
 
 	trace_dcvsh_freq(cpu, qcom_cpufreq_hw_get(cpu), throttled_freq);
 	data->dcvsh_freq_limit = thermal_pressure;
@@ -545,6 +552,7 @@ static int qcom_cpufreq_hw_lmh_init(struct cpufreq_policy *policy, int index,
 
 	data->cancel_throttle = false;
 	data->policy = policy;
+	data->last_lmh_freq = ULONG_MAX;
 
 	mutex_init(&data->throttle_lock);
 	INIT_DELAYED_WORK(&data->throttle_work, qcom_lmh_dcvs_poll);
@@ -589,6 +597,7 @@ static void qcom_cpufreq_hw_lmh_exit(struct qcom_cpufreq_data *data)
 	cancel_delayed_work_sync(&data->throttle_work);
 
 	fie_cpufreq_pressure(cpumask_first(policy->related_cpus), UINT_MAX);
+	data->last_lmh_freq = ULONG_MAX;
 	cpu_dev = get_cpu_device(cpumask_first(policy->related_cpus));
 	device_remove_file(cpu_dev, &data->freq_limit_attr);
 	trace_dcvsh_throttle(cpumask_first(policy->related_cpus), 0);
