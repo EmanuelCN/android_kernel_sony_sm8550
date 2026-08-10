@@ -4710,6 +4710,8 @@ void rcutree_migrate_callbacks(int cpu)
 	 * cover.  Drain them here, before the early returns.
 	 */
 	__rcu_defer_drain(rdp);
+	/* Likewise for the outgoing CPU's deferred call_srcu() callbacks. */
+	srcu_offline_drain(cpu);
 
 	if (rcu_rdp_is_offloaded(rdp))
 		return;
