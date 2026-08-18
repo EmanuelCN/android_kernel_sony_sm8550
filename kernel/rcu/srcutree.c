@@ -237,8 +237,10 @@ static bool init_srcu_struct_nodes(struct srcu_struct *ssp, gfp_t gfp_flags)
  * Initialize non-compile-time initialized fields, including the
  * associated srcu_node and srcu_data structures.  The is_static parameter
  * tells us that ->sda has already been wired up to srcu_data.
+ * The is_atomic parameter tells us that there is no reason to
+ * ever transition to big.
  */
-static int init_srcu_struct_fields(struct srcu_struct *ssp, bool is_static)
+static int init_srcu_struct_fields(struct srcu_struct *ssp, bool is_static, bool is_atomic)
 {
 	if (!is_static)
 		ssp->srcu_sup = kzalloc(sizeof(*ssp->srcu_sup), GFP_KERNEL);
@@ -266,7 +268,8 @@ static int init_srcu_struct_fields(struct srcu_struct *ssp, bool is_static)
 	init_srcu_struct_data(ssp);
 	ssp->srcu_sup->srcu_gp_seq_needed_exp = SRCU_GP_SEQ_INITIAL_VAL;
 	ssp->srcu_sup->srcu_last_gp_end = ktime_get_mono_fast_ns();
-	if (READ_ONCE(ssp->srcu_sup->srcu_size_state) == SRCU_SIZE_SMALL && SRCU_SIZING_IS_INIT()) {
+	if (!is_atomic &&
+	    READ_ONCE(ssp->srcu_sup->srcu_size_state) == SRCU_SIZE_SMALL && SRCU_SIZING_IS_INIT()) {
 		if (!preemptible())
 			WRITE_ONCE(ssp->srcu_sup->srcu_size_state, SRCU_SIZE_ALLOC);
 		else if (init_srcu_struct_nodes(ssp, GFP_KERNEL))
@@ -300,7 +303,7 @@ __init_srcu_struct_common(struct srcu_struct *ssp, const char *name, struct lock
 	/* Don't re-initialize a lock while it is held. */
 	debug_check_no_locks_freed((void *)ssp, sizeof(*ssp));
 	lockdep_init_map(&ssp->dep_map, name, key, 0);
-	return init_srcu_struct_fields(ssp, false);
+	return init_srcu_struct_fields(ssp, false, false);
 }
 
 int init_srcu_struct_lockdep(struct srcu_struct *ssp, const char *name,
@@ -342,7 +345,7 @@ EXPORT_SYMBOL_GPL(__init_srcu_struct_fast_updown);
 int init_srcu_struct_generic(struct srcu_struct *ssp)
 {
 	ssp->srcu_reader_flavor = 0;
-	return init_srcu_struct_fields(ssp, false);
+	return init_srcu_struct_fields(ssp, false, false);
 }
 EXPORT_SYMBOL_GPL(init_srcu_struct_generic);
 
@@ -359,7 +362,7 @@ EXPORT_SYMBOL_GPL(init_srcu_struct_generic);
 int init_srcu_struct_fast(struct srcu_struct *ssp)
 {
 	ssp->srcu_reader_flavor = SRCU_READ_FLAVOR_FAST;
-	return init_srcu_struct_fields(ssp, false);
+	return init_srcu_struct_fields(ssp, false, false);
 }
 EXPORT_SYMBOL_GPL(init_srcu_struct_fast);
 
@@ -377,7 +380,7 @@ EXPORT_SYMBOL_GPL(init_srcu_struct_fast);
 int init_srcu_struct_fast_updown(struct srcu_struct *ssp)
 {
 	ssp->srcu_reader_flavor = SRCU_READ_FLAVOR_FAST_UPDOWN;
-	return init_srcu_struct_fields(ssp, false);
+	return init_srcu_struct_fields(ssp, false, false);
 }
 EXPORT_SYMBOL_GPL(init_srcu_struct_fast_updown);
 
@@ -469,9 +472,11 @@ static void raw_spin_lock_irqsave_ssp_contention(struct srcu_struct *ssp, unsign
  * done with compile-time initialization, so this check is added
  * to each update-side SRCU primitive.  Use ssp->lock, which -is-
  * compile-time initialized, to resolve races involving multiple
- * CPUs trying to garner first-use privileges.
+ * CPUs trying to garner first-use privileges.  The is_atomic
+ * parameter tells us that there will never be a reason to
+ * transition to big.
  */
-static void check_init_srcu_struct(struct srcu_struct *ssp)
+static void check_init_srcu_struct(struct srcu_struct *ssp, bool is_atomic)
 {
 	unsigned long flags;
 
@@ -483,7 +488,7 @@ static void check_init_srcu_struct(struct srcu_struct *ssp)
 		raw_spin_unlock_irqrestore_rcu_node(ssp->srcu_sup, flags);
 		return;
 	}
-	init_srcu_struct_fields(ssp, true);
+	init_srcu_struct_fields(ssp, true, is_atomic);
 	raw_spin_unlock_irqrestore_rcu_node(ssp->srcu_sup, flags);
 }
 
@@ -1278,7 +1283,7 @@ static bool srcu_should_expedite(struct srcu_struct *ssp)
 	unsigned long t;
 	unsigned long tlast;
 
-	check_init_srcu_struct(ssp);
+	check_init_srcu_struct(ssp, false);
 	/* If _lite() readers, don't do unsolicited expediting. */
 	if (this_cpu_read(ssp->sda->srcu_reader_flavor) & SRCU_READ_FLAVOR_SLOWGP)
 		return false;
@@ -1337,7 +1342,7 @@ static unsigned long srcu_gp_start_if_needed(struct srcu_struct *ssp,
 	struct srcu_node *sdp_mynode;
 	int ss_state;
 
-	check_init_srcu_struct(ssp);
+	check_init_srcu_struct(ssp, false);
 	/*
 	 * While starting a new grace period, make sure we are in an
 	 * SRCU read-side critical section so that the grace-period
@@ -1616,7 +1621,7 @@ static void __synchronize_srcu(struct srcu_struct *ssp, bool do_norm)
 	if (rcu_scheduler_active == RCU_SCHEDULER_INACTIVE)
 		return;
 	might_sleep();
-	check_init_srcu_struct(ssp);
+	check_init_srcu_struct(ssp, false);
 	init_completion(&rcu.completion);
 	init_rcu_head_on_stack(&rcu.head);
 	__call_srcu(ssp, &rcu.head, wakeme_after_rcu, do_norm);
@@ -1826,7 +1831,7 @@ void srcu_barrier(struct srcu_struct *ssp)
 	int idx;
 	unsigned long s;
 
-	check_init_srcu_struct(ssp);
+	check_init_srcu_struct(ssp, false);
 
 	/*
 	 * Register any deferred callbacks before snapshotting the sequence.  The
