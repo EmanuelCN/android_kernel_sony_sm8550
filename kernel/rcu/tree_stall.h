@@ -159,9 +159,14 @@ static int __init check_cpu_stall_init(void)
 early_initcall(check_cpu_stall_init);
 
 /* If so specified via sysctl, panic, yielding cleaner stall-warning output. */
-static void panic_on_rcu_stall(void)
+static void panic_on_rcu_stall(unsigned long *gsp, unsigned long gp_seq)
 {
 	static int cpu_stall;
+
+	if (gsp && rcu_seq_current(gsp) != gp_seq) {
+		pr_err("INFO: Stall ended before panic check.\n");
+		return;
+	}
 
 	if (++cpu_stall < sysctl_max_rcu_stall_to_panic)
 		return;
@@ -690,7 +695,7 @@ static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
 	rcu_check_gp_kthread_expired_fqs_timer();
 	rcu_check_gp_kthread_starvation();
 
-	panic_on_rcu_stall();
+	panic_on_rcu_stall(&rcu_state.gp_seq, gp_seq);
 
 	rcu_force_quiescent_state();  /* Kick them all. */
 }
@@ -739,7 +744,7 @@ static void print_cpu_stall(unsigned long gp_seq, unsigned long gps)
 			   jiffies + 3 * rcu_jiffies_till_stall_check() + 3);
 	raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
 
-	panic_on_rcu_stall();
+	panic_on_rcu_stall(&rcu_state.gp_seq, gp_seq);
 
 	/*
 	 * Attempt to revive the RCU machinery by forcing a context switch.

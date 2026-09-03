@@ -668,7 +668,7 @@ static void synchronize_rcu_expedited_wait(void)
 		trace_rcu_stall_warning(rcu_state.name, TPS("ExpeditedStall"));
 		synchronize_rcu_expedited_stall(jiffies_start, j);
 		jiffies_stall = 3 * rcu_exp_jiffies_till_stall_check() + 3;
-		panic_on_rcu_stall();
+		panic_on_rcu_stall(NULL, 0);
 	}
 }
 
