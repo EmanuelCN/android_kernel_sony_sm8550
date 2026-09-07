@@ -33,6 +33,7 @@
 #include <linux/debugfs.h>
 #include <linux/cpuhotplug.h>
 #include <linux/part_stat.h>
+#include <linux/scatterlist.h>
 #include <linux/kernel_read_file.h>
 
 #include "zram_drv.h"
@@ -1592,15 +1593,19 @@ static int read_same_filled_page(struct zram *zram, struct page *page,
 static int read_incompressible_page(struct zram *zram, struct page *page,
 				    u32 index)
 {
+	struct scatterlist sg[2];
 	unsigned long handle;
 	void *src, *dst;
 
 	handle = zram_get_handle(zram, index);
-	src = zs_obj_read_begin(zram->mem_pool, handle, PAGE_SIZE, NULL);
+	zs_obj_read_sg_begin(zram->mem_pool, handle, sg, PAGE_SIZE);
+	/* An incompressible object never spans two pages. */
+	src = kmap_local_page(sg_page(sg));
 	dst = kmap_local_page(page);
 	copy_page(dst, src);
 	kunmap_local(dst);
-	zs_obj_read_end(zram->mem_pool, handle, PAGE_SIZE, src);
+	kunmap_local(src);
+	zs_obj_read_sg_end(zram->mem_pool, handle);
 
 	return 0;
 }
@@ -1608,9 +1613,10 @@ static int read_incompressible_page(struct zram *zram, struct page *page,
 static int read_compressed_page(struct zram *zram, struct page *page, u32 index)
 {
 	struct zcomp_strm *zstrm;
+	struct scatterlist sg[2];
 	unsigned long handle;
 	unsigned int size;
-	void *src, *dst;
+	void *dst;
 	int ret, prio;
 
 	handle = zram_get_handle(zram, index);
@@ -1618,12 +1624,11 @@ static int read_compressed_page(struct zram *zram, struct page *page, u32 index)
 	prio = zram_get_priority(zram, index);
 
 	zstrm = zcomp_stream_get(zram->comps[prio]);
-	src = zs_obj_read_begin(zram->mem_pool, handle, size,
-				zstrm->local_copy);
+	zs_obj_read_sg_begin(zram->mem_pool, handle, sg, size);
 	dst = kmap_local_page(page);
-	ret = zcomp_decompress(zram->comps[prio], zstrm, src, size, dst);
+	ret = zcomp_decompress(zram->comps[prio], zstrm, sg, size, dst);
 	kunmap_local(dst);
-	zs_obj_read_end(zram->mem_pool, handle, size, src);
+	zs_obj_read_sg_end(zram->mem_pool, handle);
 	zcomp_stream_put(zstrm);
 
 	return ret;
