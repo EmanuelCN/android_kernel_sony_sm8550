@@ -98,7 +98,7 @@ static bool check_buffer_pages_allocated(struct binder_alloc *alloc,
 	int page_index;
 	bool allocated = true;
 
-	mutex_lock(&alloc->mutex);
+	spin_lock(&alloc->lock);
 	end = PAGE_ALIGN((uintptr_t)buffer->user_data + size);
 	page_addr = (uintptr_t)buffer->user_data;
 	for (; page_addr < end; page_addr += PAGE_SIZE) {
@@ -112,7 +112,7 @@ static bool check_buffer_pages_allocated(struct binder_alloc *alloc,
 			break;
 		}
 	}
-	mutex_unlock(&alloc->mutex);
+	spin_unlock(&alloc->lock);
 	return allocated;
 }
 
@@ -143,9 +143,9 @@ static void binder_selftest_free_buf(struct binder_alloc *alloc,
 		if (!IS_ERR(buffers[seq[i]]))
 			binder_alloc_free_buf(alloc, buffers[seq[i]]);
 
-	mutex_lock(&alloc->mutex);
+	spin_lock(&alloc->lock);
 	for (i = 0; i < end / PAGE_SIZE; i++) {
-		/* Reclaimed pages are valid; the mutex pins remaining metadata. */
+		/* Reclaimed pages may be absent. Hold the lock to check the LRU. */
 		if (alloc->pages[i] && list_empty(page_to_lru(alloc->pages[i]))) {
 			pr_err_size_seq(sizes, seq);
 			pr_err("expect lru but is %s at page index %d\n",
@@ -153,7 +153,7 @@ static void binder_selftest_free_buf(struct binder_alloc *alloc,
 			binder_selftest_failures++;
 		}
 	}
-	mutex_unlock(&alloc->mutex);
+	spin_unlock(&alloc->lock);
 }
 
 static enum lru_status
@@ -176,7 +176,7 @@ static void binder_selftest_free_page(struct binder_alloc *alloc)
 	count = list_lru_count(alloc->freelist);
 	list_lru_walk(alloc->freelist, binder_selftest_reclaim_page, alloc, count);
 
-	mutex_lock(&alloc->mutex);
+	spin_lock(&alloc->lock);
 	for (i = 0; i < (alloc->buffer_size / PAGE_SIZE); i++) {
 		if (alloc->pages[i]) {
 			pr_err("expect free but is %s at page index %d\n",
@@ -185,7 +185,7 @@ static void binder_selftest_free_page(struct binder_alloc *alloc)
 			binder_selftest_failures++;
 		}
 	}
-	mutex_unlock(&alloc->mutex);
+	spin_unlock(&alloc->lock);
 }
 
 static void binder_selftest_alloc_free(struct binder_alloc *alloc,
