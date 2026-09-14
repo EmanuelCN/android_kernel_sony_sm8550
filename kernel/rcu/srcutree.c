@@ -984,6 +984,7 @@ static void srcu_gp_end(struct srcu_struct *ssp, bool is_atomic)
 	bool cbs;
 	bool last_lvl;
 	int cpu;
+	unsigned long flags;
 	unsigned long gpseq;
 	int idx;
 	unsigned long mask;
@@ -998,7 +999,7 @@ static void srcu_gp_end(struct srcu_struct *ssp, bool is_atomic)
 		mutex_lock(&sup->srcu_cb_mutex);
 
 	/* End the current grace period. */
-	raw_spin_lock_irq_rcu_node(sup);
+	raw_spin_lock_irqsave_rcu_node(sup, flags);
 	idx = rcu_seq_state(sup->srcu_gp_seq);
 	WARN_ON_ONCE(idx != SRCU_STATE_SCAN2);
 	if (srcu_gp_is_expedited(ssp))
@@ -1009,7 +1010,7 @@ static void srcu_gp_end(struct srcu_struct *ssp, bool is_atomic)
 	gpseq = rcu_seq_current(&sup->srcu_gp_seq);
 	if (ULONG_CMP_LT(sup->srcu_gp_seq_needed_exp, gpseq))
 		WRITE_ONCE(sup->srcu_gp_seq_needed_exp, gpseq);
-	raw_spin_unlock_irq_rcu_node(sup);
+	raw_spin_unlock_irqrestore_rcu_node(sup, flags);
 	if (!is_atomic)
 		mutex_unlock(&sup->srcu_gp_mutex);
 	/* A new grace period can start at this point.  But only one. */
@@ -1047,12 +1048,12 @@ static void srcu_gp_end(struct srcu_struct *ssp, bool is_atomic)
 	if (!(gpseq & counter_wrap_check))
 		for_each_possible_cpu(cpu) {
 			sdp = per_cpu_ptr(ssp->sda, cpu);
-			raw_spin_lock_irq_rcu_node(sdp);
+			raw_spin_lock_irqsave_rcu_node(sdp, flags);
 			if (ULONG_CMP_GE(gpseq, sdp->srcu_gp_seq_needed + 100))
 				sdp->srcu_gp_seq_needed = gpseq;
 			if (ULONG_CMP_GE(gpseq, sdp->srcu_gp_seq_needed_exp + 100))
 				sdp->srcu_gp_seq_needed_exp = gpseq;
-			raw_spin_unlock_irq_rcu_node(sdp);
+			raw_spin_unlock_irqrestore_rcu_node(sdp, flags);
 		}
 
 	/* Callback initiation done, allow grace periods after next. */
@@ -1060,16 +1061,16 @@ static void srcu_gp_end(struct srcu_struct *ssp, bool is_atomic)
 		mutex_unlock(&sup->srcu_cb_mutex);
 
 	/* Start a new grace period if needed. */
-	raw_spin_lock_irq_rcu_node(sup);
+	raw_spin_lock_irqsave_rcu_node(sup, flags);
 	gpseq = rcu_seq_current(&sup->srcu_gp_seq);
 	if (!rcu_seq_state(gpseq) &&
 	    ULONG_CMP_LT(gpseq, sup->srcu_gp_seq_needed)) {
 		WARN_ON_ONCE(ssp->srcu_reader_flavor & SRCU_READ_FLAVOR_ATOMIC);
 		srcu_gp_start(ssp);
-		raw_spin_unlock_irq_rcu_node(sup);
+		raw_spin_unlock_irqrestore_rcu_node(sup, flags);
 		srcu_reschedule(ssp, 0);
 	} else {
-		raw_spin_unlock_irq_rcu_node(sup);
+		raw_spin_unlock_irqrestore_rcu_node(sup, flags);
 	}
 
 	/* Transition to big if needed, but never for atomic SRCU. */
@@ -1219,10 +1220,11 @@ static void srcu_funnel_gp_start(struct srcu_struct *ssp, struct srcu_data *sdp,
 static bool try_check_zero(struct srcu_struct *ssp, int idx, int trycount)
 {
 	unsigned long curdelay;
+	unsigned long flags;
 
-	raw_spin_lock_irq_rcu_node(ssp->srcu_sup);
+	raw_spin_lock_irqsave_rcu_node(ssp->srcu_sup, flags);
 	curdelay = !srcu_get_delay(ssp);
-	raw_spin_unlock_irq_rcu_node(ssp->srcu_sup);
+	raw_spin_unlock_irqrestore_rcu_node(ssp->srcu_sup, flags);
 
 	for (;;) {
 		if (srcu_readers_active_idx_check(ssp, idx))
@@ -2022,6 +2024,7 @@ EXPORT_SYMBOL_GPL(srcu_batches_completed);
  */
 static void srcu_advance_state(struct srcu_struct *ssp, bool is_atomic)
 {
+	unsigned long flags;
 	int idx;
 
 	if (!is_atomic)
@@ -2039,10 +2042,10 @@ static void srcu_advance_state(struct srcu_struct *ssp, bool is_atomic)
 	 */
 	idx = rcu_seq_state(smp_load_acquire(&ssp->srcu_sup->srcu_gp_seq)); /* ^^^ */
 	if (idx == SRCU_STATE_IDLE) {
-		raw_spin_lock_irq_rcu_node(ssp->srcu_sup);
+		raw_spin_lock_irqsave_rcu_node(ssp->srcu_sup, flags);
 		if (ULONG_CMP_GE(ssp->srcu_sup->srcu_gp_seq, ssp->srcu_sup->srcu_gp_seq_needed)) {
 			WARN_ON_ONCE(rcu_seq_state(ssp->srcu_sup->srcu_gp_seq));
-			raw_spin_unlock_irq_rcu_node(ssp->srcu_sup);
+			raw_spin_unlock_irqrestore_rcu_node(ssp->srcu_sup, flags);
 			if (!is_atomic)
 				mutex_unlock(&ssp->srcu_sup->srcu_gp_mutex);
 			return;
@@ -2052,7 +2055,7 @@ static void srcu_advance_state(struct srcu_struct *ssp, bool is_atomic)
 			WARN_ON_ONCE(ssp->srcu_reader_flavor & SRCU_READ_FLAVOR_ATOMIC);
 			srcu_gp_start(ssp);
 		}
-		raw_spin_unlock_irq_rcu_node(ssp->srcu_sup);
+		raw_spin_unlock_irqrestore_rcu_node(ssp->srcu_sup, flags);
 		if (idx != SRCU_STATE_IDLE) {
 			if (!is_atomic)
 				mutex_unlock(&ssp->srcu_sup->srcu_gp_mutex);
@@ -2068,10 +2071,10 @@ static void srcu_advance_state(struct srcu_struct *ssp, bool is_atomic)
 			return; /* readers present, retry later. */
 		}
 		srcu_flip(ssp);
-		raw_spin_lock_irq_rcu_node(ssp->srcu_sup);
+		raw_spin_lock_irqsave_rcu_node(ssp->srcu_sup, flags);
 		rcu_seq_set_state(&ssp->srcu_sup->srcu_gp_seq, SRCU_STATE_SCAN2);
 		ssp->srcu_sup->srcu_n_exp_nodelay = 0;
-		raw_spin_unlock_irq_rcu_node(ssp->srcu_sup);
+		raw_spin_unlock_irqrestore_rcu_node(ssp->srcu_sup, flags);
 	}
 
 	if (rcu_seq_state(READ_ONCE(ssp->srcu_sup->srcu_gp_seq)) == SRCU_STATE_SCAN2) {
@@ -2118,6 +2121,7 @@ void synchronize_srcu_atomic(struct srcu_struct *ssp)
 {
 	unsigned long srcu_state;
 	struct srcu_usage *sup = ssp->srcu_sup;
+	unsigned long flags;
 	unsigned long rdm0, rdm1;
 	unsigned long unlocks0, unlocks1;
 
@@ -2148,9 +2152,9 @@ void synchronize_srcu_atomic(struct srcu_struct *ssp)
 	}
 
 	// One last check for others doing our work for us under the lock.
-	raw_spin_lock_irq_rcu_node(sup);
+	raw_spin_lock_irqsave_rcu_node(sup, flags);
 	if (poll_state_synchronize_srcu(ssp, srcu_state)) {
-		raw_spin_unlock_irq_rcu_node(sup);
+		raw_spin_unlock_irqrestore_rcu_node(sup, flags);
 		atomic_set(&sup->srcu_atomic_gp_flag, 0);
 		preempt_enable();
 		return;
@@ -2161,7 +2165,7 @@ void synchronize_srcu_atomic(struct srcu_struct *ssp)
 	smp_store_release(&sup->srcu_gp_seq_needed, srcu_state); // See srcu_funnel_gp_start().
 	ASSERT_EXCLUSIVE_WRITER(ssp->srcu_sup->srcu_gp_seq);
 	srcu_gp_start(ssp);
-	raw_spin_unlock_irq_rcu_node(sup);
+	raw_spin_unlock_irqrestore_rcu_node(sup, flags);
 
 	//
 	// Fastpath:  If there are no readers at all, neither grace-period
@@ -2199,9 +2203,9 @@ void synchronize_srcu_atomic(struct srcu_struct *ssp)
 		// poll_state_synchronize_srcu() working, all under ->lock
 		// and ->srcu_atomic_gp_flag, which excludes concurrent
 		// sequence-number updates.
-		raw_spin_lock_irq_rcu_node(sup);
+		raw_spin_lock_irqsave_rcu_node(sup, flags);
 		rcu_seq_end(&sup->srcu_gp_seq);
-		raw_spin_unlock_irq_rcu_node(sup);
+		raw_spin_unlock_irqrestore_rcu_node(sup, flags);
 		WARN_ON_ONCE(!poll_state_synchronize_srcu(ssp, srcu_state));
 		atomic_set_release(&sup->srcu_atomic_gp_flag, 0);
 		preempt_enable();
