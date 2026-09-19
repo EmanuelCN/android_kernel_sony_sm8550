@@ -6,12 +6,12 @@
  */
 #define SCHED_FEAT_ENFORCE_ELIGIBILITY 0
 #define SCHED_FEAT_PLACE_LAG 0
-#define SCHED_FEAT_PLACE_DEADLINE_INITIAL 0
+#define SCHED_FEAT_PLACE_DEADLINE_INITIAL 1
 #define SCHED_FEAT_RUN_TO_PARITY 0
 /*
  * Preserve relative virtual deadline on 'migration'.
  */
-#define SCHED_FEAT_PLACE_REL_DEADLINE 0
+#define SCHED_FEAT_PLACE_REL_DEADLINE 1
 /*
  * Allow wakeup of tasks with a shorter slice to cancel RESPECT_SLICE for
  * current.
