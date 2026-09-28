@@ -6599,7 +6599,7 @@ bool current_is_workqueue_mem_reclaim(void)
 {
 	struct worker *worker = current_wq_worker();
 
-	return worker &&
+	return worker && worker->current_pwq &&
 		((worker->current_pwq->wq->flags &
 		  (WQ_MEM_RECLAIM | __WQ_LEGACY)) == WQ_MEM_RECLAIM);
 }
