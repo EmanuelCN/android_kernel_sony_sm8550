@@ -85,6 +85,8 @@ static int bprm_creds_from_file(struct linux_binprm *bprm);
 int suid_dumpable = 0;
 
 #define LIBPERFMGR_BIN "/vendor/bin/hw/android.hardware.power-service.lineage-libperfmgr"
+#define PERFD_BIN "/vendor/bin/hw/vendor.qti.hardware.perf2-hal-service"
+#define IOP_BIN "/vendor/bin/hw/vendor.qti.hardware.iop@2.0-service"
 #define SERVICEMANAGER_BIN "/system/bin/servicemanager"
 
 static struct task_struct *servicemanager_tsk;
@@ -1895,6 +1897,10 @@ static int bprm_execve(struct linux_binprm *bprm,
 
 	if (is_global_init(current->parent)) {
 		if (unlikely(!strcmp(filename->name, LIBPERFMGR_BIN))) {
+			WRITE_ONCE(libperfmgr_tsk, current);
+		} else if (unlikely(!strcmp(filename->name, PERFD_BIN))) {
+			WRITE_ONCE(libperfmgr_tsk, current);
+		} else if (unlikely(!strcmp(filename->name, IOP_BIN))) {
 			WRITE_ONCE(libperfmgr_tsk, current);
 		} else if (unlikely(!strcmp(filename->name, SERVICEMANAGER_BIN))) {
 			WRITE_ONCE(servicemanager_tsk, current);
