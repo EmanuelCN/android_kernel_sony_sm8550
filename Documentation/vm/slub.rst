@@ -99,7 +99,7 @@ except some that are deemed too performance critical and don't need to be
 debugged by specifying global debug options followed by a list of slab names
 with "-" as options::
 
-	slub_debug=FZ;-,zs_handle,zspage
+	slub_debug=FZ;-,zspage-*
 
 The state of each debug option for a slab can be found in the respective files
 under::
