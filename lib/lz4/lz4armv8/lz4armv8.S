@@ -195,15 +195,17 @@
 	b.hs	14f
 
 11:
-	/* Copy_offset_lt_32: */
+	/* Copy_offset_lt_32: Permtable only has entries for offsets 0..15. */
+	cmp	offset, #16
+	b.hs	.Lcopy_direct_\@
 	ldr	q1, [copy_from_ptr]
 	add	tmp, permtable_addr, offset, lsl #5
 	ldp	q2, q3, [tmp]
 	tbl	v0.16b, {v1.16b}, v2.16b
 	tbl	v1.16b, {v1.16b}, v3.16b
-	cmp     offset , #16
-	b.lo    12f
-	ldp     q0, q1, [copy_from_ptr]
+	b	12f
+.Lcopy_direct_\@:
+	ldp	q0, q1, [copy_from_ptr]
 
 12:
 	/* Copy_match_perm: */
