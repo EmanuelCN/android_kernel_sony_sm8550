@@ -3,7 +3,7 @@
 #ifndef _LINUX_BINDER_INTERNAL_H
 #define _LINUX_BINDER_INTERNAL_H
 
-#include <linux/export.h>
+#include <linux/android_vendor.h>
 #include <linux/fs.h>
 #include <linux/list.h>
 #include <linux/miscdevice.h>
@@ -25,8 +25,7 @@ struct binder_context {
 
 /**
  * struct binder_device - information about a binder device node
- * @hlist:          list of binder devices (only used for devices requested via
- *                  CONFIG_ANDROID_BINDER_DEVICES)
+ * @hlist:          list of binder devices
  * @miscdev:        information about a binder character device node
  * @context:        binder context information
  * @binderfs_inode: This is the inode of the root dentry of the super block
@@ -86,11 +85,12 @@ unsigned long uclamp_eff_value(struct task_struct *p, enum uclamp_id clamp_id);
 
 #ifdef CONFIG_ANDROID_BINDERFS
 extern bool is_binderfs_device(const struct inode *inode);
+extern void binderfs_remove_file(struct dentry *dentry);
 extern struct dentry *binderfs_create_file(struct dentry *dir, const char *name,
 					   const struct file_operations *fops,
 					   void *data);
-extern void binderfs_remove_file(struct dentry *dentry);
 #else
+static inline void binderfs_remove_file(struct dentry *dentry) { }
 static inline bool is_binderfs_device(const struct inode *inode)
 {
 	return false;
@@ -102,7 +102,6 @@ static inline struct dentry *binderfs_create_file(struct dentry *dir,
 {
 	return NULL;
 }
-static inline void binderfs_remove_file(struct dentry *dentry) {}
 #endif
 
 #ifdef CONFIG_ANDROID_BINDERFS
@@ -129,12 +128,6 @@ extern const struct binder_debugfs_entry binder_debugfs_entries[];
 	     (entry)->name;			\
 	     (entry)++)
 
-struct binder_stats {
-        atomic_t br[_IOC_NR(BR_TRANSACTION_PENDING_FROZEN) + 1];
-        atomic_t bc[_IOC_NR(BC_REPLY_SG) + 1];
-        atomic_t obj_created[BINDER_STAT_COUNT];
-        atomic_t obj_deleted[BINDER_STAT_COUNT];
-};
 #endif
 
 enum binder_stat_types {
@@ -145,8 +138,19 @@ enum binder_stat_types {
 	BINDER_STAT_DEATH,
 	BINDER_STAT_TRANSACTION,
 	BINDER_STAT_TRANSACTION_COMPLETE,
+	BINDER_STAT_FREEZE,
 	BINDER_STAT_COUNT
 };
+
+#ifdef CONFIG_ANDROID_BINDER_LOGS
+struct binder_stats {
+	atomic_t br[_IOC_NR(BR_CLEAR_FREEZE_NOTIFICATION_DONE) + 1];
+	atomic_t bc[_IOC_NR(BC_FREEZE_NOTIFICATION_DONE) + 1];
+	atomic_t obj_created[BINDER_STAT_COUNT];
+	atomic_t obj_deleted[BINDER_STAT_COUNT];
+};
+
+#endif
 
 /**
  * struct binder_work - work enqueued on a worklist
@@ -168,10 +172,8 @@ struct binder_work {
 		BINDER_WORK_DEAD_BINDER,
 		BINDER_WORK_DEAD_BINDER_AND_CLEAR,
 		BINDER_WORK_CLEAR_DEATH_NOTIFICATION,
-#ifndef __GENKSYMS__
 		BINDER_WORK_FROZEN_BINDER,
 		BINDER_WORK_CLEAR_FREEZE_NOTIFICATION,
-#endif
 	} type;
 };
 
@@ -355,10 +357,11 @@ struct binder_ref {
 };
 
 /**
- * struct binder_priority - scheduler policy, priority and uclamp
- * @sched_policy            scheduler policy
- * @prio                    [100..139] for SCHED_NORMAL, [0..99] for FIFO/RT
- * @uclamp                  [0..1024] for UCLAMP_MIN & UCLAMP_MAX
+ * struct binder_priority - scheduler policy and priority
+ * @sched_policy:           scheduler policy
+ * @prio:                   [100..139] for SCHED_NORMAL, [0..99] for FIFO/RT
+ * @uclamp:                 inherited utilization clamp values
+ *
  * The binder driver supports inheriting the following scheduler policies:
  * SCHED_NORMAL
  * SCHED_BATCH
@@ -428,6 +431,8 @@ enum binder_prio_state {
  *                        (atomics, no lock needed)
  * @delivered_death:      list of delivered death notification
  *                        (protected by @inner_lock)
+ * @delivered_freeze:     list of delivered freeze notification
+ *                        (protected by @inner_lock)
  * @max_threads:          cap on number of binder threads
  *                        (protected by @inner_lock)
  * @requested_threads:    number of binder threads requested but not
@@ -477,7 +482,8 @@ struct binder_proc {
 	struct binder_stats stats;
 #endif
 	struct list_head delivered_death;
-	int max_threads;
+	struct list_head delivered_freeze;
+	u32 max_threads;
 	int requested_threads;
 	int requested_threads_started;
 	int tmp_ref;
@@ -490,74 +496,6 @@ struct binder_proc {
 	struct dentry *binderfs_entry;
 	bool oneway_spam_detection_enabled;
 };
-
-/**
- * struct binder_proc_wrap - wrapper to preserve KMI in binder_proc
- * @proc:                    binder_proc being wrapped
- * @lock:                    protects @proc->alloc fields
- * @delivered_freeze:        list of delivered freeze notification
- *                           (protected by @inner_lock)
- */
-struct binder_proc_wrap {
-	struct binder_proc proc;
-	spinlock_t lock;
-	struct list_head delivered_freeze;
-};
-
-static inline
-struct binder_proc_wrap *proc_wrapper(struct binder_proc *proc)
-{
-	return container_of(proc, struct binder_proc_wrap, proc);
-}
-
-static inline struct binder_proc *
-binder_proc_entry(struct binder_alloc *alloc)
-{
-	return container_of(alloc, struct binder_proc, alloc);
-}
-
-static inline struct binder_proc_wrap *
-binder_alloc_to_proc_wrap(struct binder_alloc *alloc)
-{
-	return proc_wrapper(binder_proc_entry(alloc));
-}
-
-static inline void binder_alloc_lock_init(struct binder_alloc *alloc)
-{
-	spin_lock_init(&binder_alloc_to_proc_wrap(alloc)->lock);
-}
-
-static inline void binder_alloc_lock(struct binder_alloc *alloc)
-{
-	spin_lock(&binder_alloc_to_proc_wrap(alloc)->lock);
-}
-
-static inline void binder_alloc_unlock(struct binder_alloc *alloc)
-{
-	spin_unlock(&binder_alloc_to_proc_wrap(alloc)->lock);
-}
-
-static inline int binder_alloc_trylock(struct binder_alloc *alloc)
-{
-	return spin_trylock(&binder_alloc_to_proc_wrap(alloc)->lock);
-}
-
-/**
- * binder_alloc_get_free_async_space() - get free space available for async
- * @alloc:	binder_alloc for this proc
- *
- * Return:	the bytes remaining in the address-space for async transactions
- */
-static inline size_t
-binder_alloc_get_free_async_space(struct binder_alloc *alloc)
-{
-	size_t free_async_space;
-
-	binder_alloc_lock(alloc);
-	free_async_space = alloc->free_async_space;
-	binder_alloc_unlock(alloc);
-	return free_async_space;
-}
 
 /**
  * struct binder_thread - binder thread bookkeeping
@@ -582,6 +520,8 @@ binder_alloc_get_free_async_space(struct binder_alloc *alloc)
  * @return_error:         transaction errors reported by this thread
  *                        (only accessed by this thread)
  * @reply_error:          transaction errors reported by target thread
+ *                        (protected by @proc->inner_lock)
+ * @ee:                   extended error information from this thread
  *                        (protected by @proc->inner_lock)
  * @wait:                 wait queue for thread work
  * @stats:                per-thread statistics
@@ -614,6 +554,7 @@ struct binder_thread {
 	bool process_todo;
 	struct binder_error return_error;
 	struct binder_error reply_error;
+	struct binder_extended_error ee;
 	wait_queue_head_t wait;
 #ifdef CONFIG_ANDROID_BINDER_LOGS
 	struct binder_stats stats;
@@ -631,6 +572,7 @@ struct binder_thread {
  * @fixup_entry:          list entry
  * @file:                 struct file to be associated with new fd
  * @offset:               offset in buffer data to this fixup
+ * @target_fd:            fd to use by the target to install @file
  *
  * List element for fd fixups in a transaction. Since file
  * descriptors need to be allocated in the context of the
@@ -641,6 +583,7 @@ struct binder_txn_fd_fixup {
 	struct list_head fixup_entry;
 	struct file *file;
 	size_t offset;
+	int target_fd;
 };
 
 struct binder_transaction {
@@ -653,8 +596,8 @@ struct binder_transaction {
 	struct binder_proc *to_proc;
 	struct binder_thread *to_thread;
 	struct binder_transaction *to_parent;
-	unsigned need_reply:1;
-	/* unsigned is_dead:1; */       /* not used at the moment */
+	unsigned is_async:1;
+	unsigned is_reply:1;
 
 	struct binder_buffer *buffer;
 	unsigned int    code;
@@ -696,5 +639,18 @@ struct binder_object {
 		struct binder_fd_array_object fdao;
 	};
 };
+
+/**
+ * Add a binder device to binder_devices
+ * @device: the new binder device to add to the global list
+ */
+void binder_add_device(struct binder_device *device);
+
+/**
+ * Remove a binder device to binder_devices
+ * @device: the binder device to remove from the global list
+ */
+void binder_remove_device(struct binder_device *device);
+
 
 #endif /* _LINUX_BINDER_INTERNAL_H */

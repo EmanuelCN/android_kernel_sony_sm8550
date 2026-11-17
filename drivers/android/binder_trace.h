@@ -34,27 +34,6 @@ TRACE_EVENT(binder_ioctl,
 	TP_printk("cmd=0x%x arg=0x%lx", __entry->cmd, __entry->arg)
 );
 
-DECLARE_EVENT_CLASS(binder_lock_class,
-	TP_PROTO(const char *tag),
-	TP_ARGS(tag),
-	TP_STRUCT__entry(
-		__field(const char *, tag)
-	),
-	TP_fast_assign(
-		__entry->tag = tag;
-	),
-	TP_printk("tag=%s", __entry->tag)
-);
-
-#define DEFINE_BINDER_LOCK_EVENT(name)	\
-DEFINE_EVENT(binder_lock_class, name,	\
-	TP_PROTO(const char *func), \
-	TP_ARGS(func))
-
-DEFINE_BINDER_LOCK_EVENT(binder_lock);
-DEFINE_BINDER_LOCK_EVENT(binder_locked);
-DEFINE_BINDER_LOCK_EVENT(binder_unlock);
-
 DECLARE_EVENT_CLASS(binder_function_return_class,
 	TP_PROTO(int ret),
 	TP_ARGS(ret),
@@ -78,7 +57,7 @@ DEFINE_BINDER_FUNCTION_RETURN_EVENT(binder_read_done);
 
 TRACE_EVENT(binder_set_priority,
 	TP_PROTO(int proc, int thread, unsigned int old_prio,
-		 unsigned int desired_prio, unsigned int new_prio),
+		 unsigned int new_prio, unsigned int desired_prio),
 	TP_ARGS(proc, thread, old_prio, new_prio, desired_prio),
 
 	TP_STRUCT__entry(
@@ -352,7 +331,7 @@ TRACE_EVENT(binder_update_page_range,
 	TP_fast_assign(
 		__entry->proc = alloc->pid;
 		__entry->allocate = allocate;
-		__entry->offset = start - (uintptr_t)alloc->buffer;
+		__entry->offset = start - alloc->vm_start;
 		__entry->size = end - start;
 	),
 	TP_printk("proc=%d allocate=%d offset=%zu size=%zu",
@@ -447,7 +426,9 @@ TRACE_EVENT(binder_return,
 			  binder_return_strings[_IOC_NR(__entry->cmd)] :
 			  "unknown")
 );
+
 #endif
+
 #endif /* _BINDER_TRACE_H */
 
 #undef TRACE_INCLUDE_PATH

@@ -15,7 +15,6 @@
 #include <linux/list_lru.h>
 #include <uapi/linux/android/binder.h>
 
-extern struct list_lru binder_freelist;
 struct binder_transaction;
 
 /**
@@ -54,41 +53,49 @@ struct binder_buffer {
 	size_t data_size;
 	size_t offsets_size;
 	size_t extra_buffers_size;
-	void __user *user_data;
+	unsigned long user_data;
 	int pid;
 };
 
 /**
- * struct binder_lru_page - page object used for binder shrinker
- * @page_ptr: pointer to physical page in mmap'd space
- * @lru:      entry in binder_freelist
- * @alloc:    binder_alloc for a proc
+ * struct binder_shrinker_mdata - binder metadata used to reclaim pages
+ * @lru:         LRU entry in binder_freelist
+ * @alloc:       binder_alloc owning the page to reclaim
+ * @page_index:  offset in @alloc->pages[] into the page to reclaim
  */
-struct binder_lru_page {
+struct binder_shrinker_mdata {
 	struct list_head lru;
-	struct page *page_ptr;
 	struct binder_alloc *alloc;
+	unsigned long page_index;
 };
+
+static inline struct list_head *page_to_lru(struct page *p)
+{
+	struct binder_shrinker_mdata *mdata;
+
+	mdata = (struct binder_shrinker_mdata *)page_private(p);
+
+	return &mdata->lru;
+}
 
 /**
  * struct binder_alloc - per-binder proc state for binder allocator
- * @lock:               protects binder_alloc fields
- * @vma:                vm_area_struct passed to mmap_handler
- *                      (invarient after mmap)
- * @tsk:                tid for task that called init for this proc
- *                      (invariant after init)
- * @vma_vm_mm:          copy of vma->vm_mm (invarient after mmap)
- * @buffer:             base of per-proc address space mapped via mmap
+ * @mutex:              protects binder_alloc fields
+ * @mm:                 copy of task->mm (invariant after open)
+ * @vm_start:           base of per-proc address space mapped via mmap
  * @buffers:            list of all buffers for this proc
  * @free_buffers:       rb tree of buffers available for allocation
  *                      sorted by size
  * @allocated_buffers:  rb tree of allocated buffers sorted by address
  * @free_async_space:   VA space available for async buffers. This is
  *                      initialized at mmap time to 1/2 the full VA space
- * @pages:              array of binder_lru_page
+ * @pages:              array of struct page *
+ * @freelist:           lru list to use for free pages (invariant after init)
  * @buffer_size:        size of address space specified via mmap
  * @pid:                pid for associated binder_proc (invariant after init)
  * @pages_high:         high watermark of offset in @pages
+ * @mapped:             whether the vm area is mapped, each binder instance is
+ *                      allowed a single mapping throughout its lifetime
  * @oneway_spam_detected: %true if oneway spam detection fired, clear that
  * flag once the async buffer has returned to a healthy state
  *
@@ -99,26 +106,21 @@ struct binder_lru_page {
  */
 struct binder_alloc {
 	struct mutex mutex;
-	struct vm_area_struct *vma;
-	struct mm_struct *vma_vm_mm;
-	void __user *buffer;
+	struct mm_struct *mm;
+	unsigned long vm_start;
 	struct list_head buffers;
 	struct rb_root free_buffers;
 	struct rb_root allocated_buffers;
 	size_t free_async_space;
-	struct binder_lru_page *pages;
+	struct page **pages;
+	struct list_lru *freelist;
 	size_t buffer_size;
-	uint32_t buffer_free;
 	int pid;
 	size_t pages_high;
+	bool mapped;
 	bool oneway_spam_detected;
 };
 
-#ifdef CONFIG_ANDROID_BINDER_IPC_SELFTEST
-void binder_selftest_alloc(struct binder_alloc *alloc);
-#else
-static inline void binder_selftest_alloc(struct binder_alloc *alloc) {}
-#endif
 enum lru_status binder_alloc_free_page(struct list_head *item,
 				       struct list_lru_one *lru,
 				       spinlock_t *lock, void *cb_arg);
@@ -144,8 +146,26 @@ void binder_alloc_print_allocated(struct seq_file *m,
 				  struct binder_alloc *alloc);
 void binder_alloc_print_pages(struct seq_file *m,
 			      struct binder_alloc *alloc);
-extern int binder_buffer_pool_create(void);
-extern void binder_buffer_pool_destroy(void);
+
+/**
+ * binder_alloc_get_free_async_space() - get free space available for async
+ * @alloc:	binder_alloc for this proc
+ *
+ * Return:	the bytes remaining in the address-space for async transactions
+ */
+static inline size_t
+binder_alloc_get_free_async_space(struct binder_alloc *alloc)
+{
+	size_t free_async_space;
+
+	mutex_lock(&alloc->mutex);
+	free_async_space = alloc->free_async_space;
+	mutex_unlock(&alloc->mutex);
+	return free_async_space;
+}
+
+int binder_buffer_pool_create(void);
+void binder_buffer_pool_destroy(void);
 
 unsigned long
 binder_alloc_copy_user_to_buffer(struct binder_alloc *alloc,
@@ -165,6 +185,12 @@ int binder_alloc_copy_from_buffer(struct binder_alloc *alloc,
 				  struct binder_buffer *buffer,
 				  binder_size_t buffer_offset,
 				  size_t bytes);
+
+#ifdef CONFIG_ANDROID_BINDER_IPC_SELFTEST
+void binder_selftest_alloc(struct binder_alloc *alloc);
+#else
+static inline void binder_selftest_alloc(struct binder_alloc *alloc) { }
+#endif
 
 #endif /* _LINUX_BINDER_ALLOC_H */
 

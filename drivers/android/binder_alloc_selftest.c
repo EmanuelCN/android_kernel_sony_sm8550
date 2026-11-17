@@ -96,20 +96,24 @@ static bool check_buffer_pages_allocated(struct binder_alloc *alloc,
 	unsigned long page_addr;
 	unsigned long end;
 	int page_index;
+	bool allocated = true;
 
+	mutex_lock(&alloc->mutex);
 	end = PAGE_ALIGN((uintptr_t)buffer->user_data + size);
 	page_addr = (uintptr_t)buffer->user_data;
 	for (; page_addr < end; page_addr += PAGE_SIZE) {
-		page_index = (page_addr - (uintptr_t)alloc->buffer) / PAGE_SIZE;
-		if (!alloc->pages[page_index].page_ptr ||
-		    !list_empty(&alloc->pages[page_index].lru)) {
+		page_index = (page_addr - alloc->vm_start) / PAGE_SIZE;
+		if (!alloc->pages[page_index] ||
+		    !list_empty(page_to_lru(alloc->pages[page_index]))) {
 			pr_err("expect alloc but is %s at page index %d\n",
-			       alloc->pages[page_index].page_ptr ?
+			       alloc->pages[page_index] ?
 			       "lru" : "free", page_index);
-			return false;
+			allocated = false;
+			break;
 		}
 	}
-	return true;
+	mutex_unlock(&alloc->mutex);
+	return allocated;
 }
 
 static void binder_selftest_alloc_buf(struct binder_alloc *alloc,
@@ -136,21 +140,32 @@ static void binder_selftest_free_buf(struct binder_alloc *alloc,
 	int i;
 
 	for (i = 0; i < BUFFER_NUM; i++)
-		binder_alloc_free_buf(alloc, buffers[seq[i]]);
+		if (!IS_ERR(buffers[seq[i]]))
+			binder_alloc_free_buf(alloc, buffers[seq[i]]);
 
+	mutex_lock(&alloc->mutex);
 	for (i = 0; i < end / PAGE_SIZE; i++) {
-		/**
-		 * Error message on a free page can be false positive
-		 * if binder shrinker ran during binder_alloc_free_buf
-		 * calls above.
-		 */
-		if (list_empty(&alloc->pages[i].lru)) {
+		/* Reclaimed pages are valid; the mutex pins remaining metadata. */
+		if (alloc->pages[i] && list_empty(page_to_lru(alloc->pages[i]))) {
 			pr_err_size_seq(sizes, seq);
 			pr_err("expect lru but is %s at page index %d\n",
-			       alloc->pages[i].page_ptr ? "alloc" : "free", i);
+			       alloc->pages[i] ? "alloc" : "free", i);
 			binder_selftest_failures++;
 		}
 	}
+	mutex_unlock(&alloc->mutex);
+}
+
+static enum lru_status
+binder_selftest_reclaim_page(struct list_head *item, struct list_lru_one *lru,
+			     spinlock_t *lock, void *arg)
+{
+	struct binder_shrinker_mdata *mdata;
+
+	mdata = container_of(item, struct binder_shrinker_mdata, lru);
+	if (mdata->alloc != arg)
+		return LRU_SKIP;
+	return binder_alloc_free_page(item, lru, lock, NULL);
 }
 
 static void binder_selftest_free_page(struct binder_alloc *alloc)
@@ -158,19 +173,19 @@ static void binder_selftest_free_page(struct binder_alloc *alloc)
 	int i;
 	unsigned long count;
 
-	while ((count = list_lru_count(&binder_freelist))) {
-		list_lru_walk(&binder_freelist, binder_alloc_free_page,
-			      NULL, count);
-	}
+	count = list_lru_count(alloc->freelist);
+	list_lru_walk(alloc->freelist, binder_selftest_reclaim_page, alloc, count);
 
+	mutex_lock(&alloc->mutex);
 	for (i = 0; i < (alloc->buffer_size / PAGE_SIZE); i++) {
-		if (alloc->pages[i].page_ptr) {
+		if (alloc->pages[i]) {
 			pr_err("expect free but is %s at page index %d\n",
-			       list_empty(&alloc->pages[i].lru) ?
+			       list_empty(page_to_lru(alloc->pages[i])) ?
 			       "alloc" : "lru", i);
 			binder_selftest_failures++;
 		}
 	}
+	mutex_unlock(&alloc->mutex);
 }
 
 static void binder_selftest_alloc_free(struct binder_alloc *alloc,
@@ -183,8 +198,6 @@ static void binder_selftest_alloc_free(struct binder_alloc *alloc,
 
 	/* Allocate from lru. */
 	binder_selftest_alloc_buf(alloc, buffers, sizes, seq);
-	if (list_lru_count(&binder_freelist))
-		pr_err("lru list should be empty but is not\n");
 
 	binder_selftest_free_buf(alloc, buffers, sizes, seq, end);
 	binder_selftest_free_page(alloc);
@@ -287,7 +300,9 @@ void binder_selftest_alloc(struct binder_alloc *alloc)
 	if (!binder_selftest_run)
 		return;
 	mutex_lock(&binder_selftest_lock);
-	if (!binder_selftest_run || !alloc->vma)
+	/* Pairs with smp_store_release() in binder_alloc_set_mapped(). */
+	if (!binder_selftest_run || !smp_load_acquire(&alloc->mapped) ||
+	    alloc->buffer_size < (2 * BUFFER_NUM + 1) * PAGE_SIZE)
 		goto done;
 	pr_info("STARTED\n");
 	binder_selftest_alloc_offset(alloc, end_offset, 0);
