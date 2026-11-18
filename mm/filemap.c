@@ -1716,8 +1716,7 @@ __sched int __lock_page_or_retry(struct page *page, struct mm_struct *mm,
 		if (flags & FAULT_FLAG_RETRY_NOWAIT)
 			return 0;
 
-		if (!(flags & FAULT_FLAG_SPECULATIVE))
-			mmap_read_unlock(mm);
+		mmap_read_unlock(mm);
 		if (flags & FAULT_FLAG_KILLABLE)
 			wait_on_page_locked_killable(page);
 		else
@@ -1729,8 +1728,7 @@ __sched int __lock_page_or_retry(struct page *page, struct mm_struct *mm,
 
 		ret = __lock_page_killable(page);
 		if (ret) {
-			if (!(flags & FAULT_FLAG_SPECULATIVE))
-				mmap_read_unlock(mm);
+			mmap_read_unlock(mm);
 			return 0;
 		}
 	} else {
@@ -3058,9 +3056,7 @@ static struct file *do_async_mmap_readahead(struct vm_fault *vmf,
  * it in the page cache, and handles the special cases reasonably without
  * having a lot of duplicated code.
  *
- * If FAULT_FLAG_SPECULATIVE is set, this function runs within an rcu
- * read locked section and with mmap lock not held.
- * Otherwise, vma->vm_mm->mmap_lock must be held on entry.
+ * vma->vm_mm->mmap_lock must be held on entry.
  *
  * If our return value has VM_FAULT_RETRY set, it's because the mmap_lock
  * may be dropped before doing I/O or by lock_page_maybe_drop_mmap().
@@ -3078,59 +3074,12 @@ vm_fault_t filemap_fault(struct vm_fault *vmf)
 	struct file *file = vmf->vma->vm_file;
 	struct file *fpin = NULL;
 	struct address_space *mapping = file->f_mapping;
-	struct file_ra_state *ra = &file->f_ra;
 	struct inode *inode = mapping->host;
 	pgoff_t offset = vmf->pgoff;
 	pgoff_t max_off;
 	struct page *page;
 	vm_fault_t ret = 0;
 	bool mapping_locked = false;
-
-	if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
-		page = find_get_page(mapping, offset);
-		if (unlikely(!page))
-			return VM_FAULT_RETRY;
-
-		if (unlikely(PageReadahead(page)))
-			goto page_put;
-
-		if (!trylock_page(page))
-			goto page_put;
-
-		if (unlikely(compound_head(page)->mapping != mapping))
-			goto page_unlock;
-		VM_BUG_ON_PAGE(page_to_pgoff(page) != offset, page);
-		if (unlikely(!PageUptodate(page)))
-			goto page_unlock;
-
-		max_off = DIV_ROUND_UP(i_size_read(inode), PAGE_SIZE);
-		if (unlikely(offset >= max_off))
-			goto page_unlock;
-
-		/*
-		 * Update readahead mmap_miss statistic.
-		 *
-		 * Note that we are not sure if finish_fault() will
-		 * manage to complete the transaction. If it fails,
-		 * we'll come back to filemap_fault() non-speculative
-		 * case which will update mmap_miss a second time.
-		 * This is not ideal, we would prefer to guarantee the
-		 * update will happen exactly once.
-		 */
-		if (!(vmf->vma->vm_flags & VM_RAND_READ) && ra->ra_pages) {
-			unsigned int mmap_miss = READ_ONCE(ra->mmap_miss);
-			if (mmap_miss)
-				WRITE_ONCE(ra->mmap_miss, --mmap_miss);
-		}
-
-		vmf->page = page;
-		return VM_FAULT_LOCKED;
-page_unlock:
-		unlock_page(page);
-page_put:
-		put_page(page);
-		return VM_FAULT_RETRY;
-	}
 
 	max_off = DIV_ROUND_UP(i_size_read(inode), PAGE_SIZE);
 	if (unlikely(offset >= max_off))
@@ -3381,8 +3330,7 @@ vm_fault_t filemap_map_pages(struct vm_fault *vmf,
 	XA_STATE(xas, &mapping->i_pages, start_pgoff);
 	struct page *head, *page;
 	unsigned int mmap_miss = READ_ONCE(file->f_ra.mmap_miss);
-	vm_fault_t ret = (vmf->flags & FAULT_FLAG_SPECULATIVE) ?
-		VM_FAULT_RETRY : 0;
+	vm_fault_t ret = 0;
 	pgoff_t first_pgoff = 0;
 
 	/* filemap_map_pages() is called within an rcu read lock already. */
@@ -3391,8 +3339,7 @@ vm_fault_t filemap_map_pages(struct vm_fault *vmf,
 		return ret;
 	first_pgoff = xas.xa_index;
 
-	if (!(vmf->flags & FAULT_FLAG_SPECULATIVE) &&
-	    filemap_map_pmd(vmf, head))
+	if (filemap_map_pmd(vmf, head))
 		return VM_FAULT_NOPAGE;
 
 	if (!pte_map_lock(vmf)) {
@@ -3471,7 +3418,6 @@ const struct vm_operations_struct generic_file_vm_ops = {
 	.fault		= filemap_fault,
 	.map_pages	= filemap_map_pages,
 	.page_mkwrite	= filemap_page_mkwrite,
-	.speculative	= true,
 };
 
 /* This is used for a general mmap of a disk file */

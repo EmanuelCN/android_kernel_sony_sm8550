@@ -542,11 +542,6 @@ static int __kprobes do_page_fault(unsigned long far, unsigned int esr,
 	unsigned long vm_flags;
 	unsigned int mm_flags = FAULT_FLAG_DEFAULT;
 	unsigned long addr = untagged_addr(far);
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	struct vm_area_struct *vma;
-	struct vm_area_struct pvma;
-	unsigned long seq;
-#endif
 
 	if (kprobe_page_fault(regs, esr))
 		return 0;
@@ -604,59 +599,6 @@ static int __kprobes do_page_fault(unsigned long far, unsigned int esr,
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, addr);
 
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	/*
-	 * No need to try speculative faults for kernel or
-	 * single threaded user space.
-	 */
-	if (!(mm_flags & FAULT_FLAG_USER) || atomic_read(&mm->mm_users) == 1)
-		goto no_spf;
-
-	count_vm_event(SPF_ATTEMPT);
-	seq = mmap_seq_read_start(mm);
-	if (seq & 1) {
-		count_vm_spf_event(SPF_ABORT_ODD);
-		goto spf_abort;
-	}
-	vma = get_vma(mm, addr);
-	if (!vma) {
-		count_vm_spf_event(SPF_ABORT_UNMAPPED);
-		goto spf_abort;
-	}
-	if (!vma_can_speculate(vma, mm_flags)) {
-		put_vma(vma);
-		count_vm_spf_event(SPF_ABORT_NO_SPECULATE);
-		goto spf_abort;
-	}
-	pvma = *vma;
-	if (!mmap_seq_read_check(mm, seq, SPF_ABORT_VMA_COPY)) {
-		put_vma(vma);
-		goto spf_abort;
-	}
-	if (!(pvma.vm_flags & vm_flags)) {
-		put_vma(vma);
-		count_vm_spf_event(SPF_ABORT_ACCESS_ERROR);
-		goto spf_abort;
-	}
-	fault = do_handle_mm_fault(&pvma, addr & PAGE_MASK,
-			mm_flags | FAULT_FLAG_SPECULATIVE, seq, regs);
-	put_vma(vma);
-
-	/* Quick path to respond to signals */
-	if (fault_signal_pending(fault, regs)) {
-		if (!user_mode(regs))
-			goto no_context;
-		return 0;
-	}
-	if (!(fault & VM_FAULT_RETRY))
-		goto done;
-
-spf_abort:
-	count_vm_event(SPF_ABORT);
-no_spf:
-
-#endif	/* CONFIG_SPECULATIVE_PAGE_FAULT */
-
 	/*
 	 * As per x86, we may deadlock here. However, since the kernel only
 	 * validly references user space from well defined areas of the code,
@@ -697,9 +639,6 @@ retry:
 		}
 	}
 	mmap_read_unlock(mm);
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-done:
-#endif
 
 	/*
 	 * Handle the "normal" (no error) case first.

@@ -185,8 +185,9 @@ static struct vm_area_struct *remove_vma(struct vm_area_struct *vma)
 
 	might_sleep();
 	vma_close(vma);
+	if (vma->vm_file)
+		fput(vma->vm_file);
 	mpol_put(vma_policy(vma));
-	/* fput(vma->vm_file) happens in vm_area_free after an RCU delay. */
 	vm_area_free(vma);
 	return next;
 }
@@ -962,8 +963,7 @@ again:
 	if (remove_next) {
 		if (file) {
 			uprobe_munmap(next, next->vm_start, next->vm_end);
-			/* fput(file) happens whthin vm_area_free(next) */
-			VM_BUG_ON(file != next->vm_file);
+			fput(file);
 		}
 		if (next->anon_vma)
 			anon_vma_merge(vma, next);
@@ -1835,7 +1835,7 @@ static unsigned long __mmap_region(struct file *file, unsigned long addr,
 				 * fput the vma->vm_file here or we would add an extra fput for file
 				 * and cause general protection fault ultimately.
 				 */
-				/* fput happens within vm_area_free */
+				fput(vma->vm_file);
 				vm_area_free(vma);
 				vma = merge;
 				/* Update vm_flags to pick up the change. */
@@ -1899,7 +1899,6 @@ unmap_and_free_file_vma:
 	/* Undo any partial mapping done by a device driver. */
 	unmap_region(mm, vma, prev, vma->vm_start, vma->vm_end);
 free_vma:
-	VM_BUG_ON(vma->vm_file);
 	vm_area_free(vma);
 unacct_error:
 	if (charged)
@@ -2279,10 +2278,17 @@ get_unmapped_area(struct file *file, unsigned long addr, unsigned long len,
 
 EXPORT_SYMBOL(get_unmapped_area);
 
-struct vm_area_struct *find_vma_from_tree(struct mm_struct *mm, unsigned long addr)
+/* Look up the first VMA which satisfies  addr < vm_end,  NULL if none. */
+struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 {
 	struct rb_node *rb_node;
-	struct vm_area_struct *vma = NULL;
+	struct vm_area_struct *vma;
+
+	mmap_assert_locked(mm);
+	/* Check the cache first. */
+	vma = vmacache_find(mm, addr);
+	if (likely(vma))
+		return vma;
 
 	rb_node = mm->mm_rb.rb_node;
 
@@ -2300,27 +2306,12 @@ struct vm_area_struct *find_vma_from_tree(struct mm_struct *mm, unsigned long ad
 			rb_node = rb_node->rb_right;
 	}
 
-	return vma;
-}
-
-/* Look up the first VMA which satisfies  addr < vm_end,  NULL if none. */
-struct vm_area_struct *__find_vma(struct mm_struct *mm, unsigned long addr)
-{
-	struct vm_area_struct *vma;
-
-	/* Check the cache first. */
-	vma = vmacache_find(mm, addr);
-	if (likely(vma))
-		return vma;
-
-	vma = find_vma_from_tree(mm, addr);
-
 	if (vma)
 		vmacache_update(addr, vma);
 	return vma;
 }
 
-EXPORT_SYMBOL(__find_vma);
+EXPORT_SYMBOL(find_vma);
 
 /*
  * Same as find_vma, but also return a pointer to the previous VMA in *pprev.
@@ -2791,7 +2782,6 @@ int __split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
  out_free_mpol:
 	mpol_put(vma_policy(new));
  out_free_vma:
-	new->vm_file = NULL;	/* prevents fput within vm_area_free() */
 	vm_area_free(new);
 	return err;
 }
@@ -3366,7 +3356,6 @@ struct vm_area_struct *copy_vma(struct vm_area_struct **vmap,
 out_free_mempol:
 	mpol_put(vma_policy(new_vma));
 out_free_vma:
-	new_vma->vm_file = NULL;	/* Prevent fput within vm_area_free */
 	vm_area_free(new_vma);
 out:
 	return NULL;
@@ -3659,10 +3648,6 @@ int mm_take_all_locks(struct mm_struct *mm)
 
 	mutex_lock(&mm_all_locks_mutex);
 
-#if defined(CONFIG_MMU_NOTIFIER) && defined(CONFIG_SPECULATIVE_PAGE_FAULT)
-	percpu_down_write(mm->mmu_notifier_lock);
-#endif
-
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
 		if (signal_pending(current))
 			goto out_unlock;
@@ -3749,10 +3734,6 @@ void mm_drop_all_locks(struct mm_struct *mm)
 		if (vma->vm_file && vma->vm_file->f_mapping)
 			vm_unlock_mapping(vma->vm_file->f_mapping);
 	}
-
-#if defined(CONFIG_MMU_NOTIFIER) && defined(CONFIG_SPECULATIVE_PAGE_FAULT)
-	percpu_up_write(mm->mmu_notifier_lock);
-#endif
 
 	mutex_unlock(&mm_all_locks_mutex);
 }

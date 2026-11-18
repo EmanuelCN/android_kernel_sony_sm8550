@@ -253,7 +253,6 @@ void setup_initial_init_mm(void *start_code, void *end_code,
 
 struct vm_area_struct *vm_area_alloc(struct mm_struct *);
 struct vm_area_struct *vm_area_dup(struct vm_area_struct *);
-void vm_area_free_no_check(struct vm_area_struct *);
 void vm_area_free(struct vm_area_struct *);
 
 #ifndef CONFIG_MMU
@@ -448,7 +447,6 @@ extern pgprot_t protection_map[16];
  * @FAULT_FLAG_REMOTE: The fault is not for current task/mm.
  * @FAULT_FLAG_INSTRUCTION: The fault was during an instruction fetch.
  * @FAULT_FLAG_INTERRUPTIBLE: The fault can be interrupted by non-fatal signals.
- * @FAULT_FLAG_SPECULATIVE: The fault is handled without holding the mmap lock.
  *
  * About @FAULT_FLAG_ALLOW_RETRY and @FAULT_FLAG_TRIED: we can specify
  * whether we would allow page faults to retry by specifying these two
@@ -480,7 +478,6 @@ enum fault_flag {
 	FAULT_FLAG_REMOTE =		1 << 7,
 	FAULT_FLAG_INSTRUCTION =	1 << 8,
 	FAULT_FLAG_INTERRUPTIBLE =	1 << 9,
-	FAULT_FLAG_SPECULATIVE =	1 << 10,
 };
 
 /*
@@ -520,8 +517,7 @@ static inline bool fault_flag_allow_retry_first(enum fault_flag flags)
 	{ FAULT_FLAG_USER,		"USER" }, \
 	{ FAULT_FLAG_REMOTE,		"REMOTE" }, \
 	{ FAULT_FLAG_INSTRUCTION,	"INSTRUCTION" }, \
-	{ FAULT_FLAG_INTERRUPTIBLE,	"INTERRUPTIBLE" }, \
-	{ FAULT_FLAG_SPECULATIVE,	"SPECULATIVE" }
+	{ FAULT_FLAG_INTERRUPTIBLE,	"INTERRUPTIBLE" }
 
 /*
  * vm_fault is filled by the pagefault handler and passed to the vma's
@@ -542,10 +538,6 @@ struct vm_fault {
 	};
 	enum fault_flag flags;		/* FAULT_FLAG_xxx flags
 					 * XXX: should really be 'const' */
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	unsigned long seq;
-	pmd_t orig_pmd;
-#endif
 	pmd_t *pmd;			/* Pointer to pmd entry matching
 					 * the 'address' */
 	pud_t *pud;			/* Pointer to pud entry matching
@@ -553,11 +545,9 @@ struct vm_fault {
 					 */
 	union {
 		pte_t orig_pte;		/* Value of PTE at the time of fault */
-#ifndef CONFIG_SPECULATIVE_PAGE_FAULT
 		pmd_t orig_pmd;		/* Value of PMD at the time of fault,
 					 * used by PMD fault only.
 					 */
-#endif
 	};
 
 	struct page *cow_page;		/* Page handler may use for COW fault */
@@ -665,14 +655,6 @@ struct vm_operations_struct {
 	 */
 	struct page *(*find_special_page)(struct vm_area_struct *vma,
 					  unsigned long addr);
-	/*
-	 * speculative indicates that the vm_operations support
-	 * speculative page faults. This allows ->fault and ->map_pages
-	 * to be called with FAULT_FLAG_SPECULATIVE set; such calls will
-	 * run within an rcu read locked section and with mmap lock not held.
-	 */
-	bool speculative;
-
 	ANDROID_KABI_RESERVE(1);
 	ANDROID_KABI_RESERVE(2);
 	ANDROID_KABI_RESERVE(3);
@@ -681,10 +663,6 @@ struct vm_operations_struct {
 
 static inline void INIT_VMA(struct vm_area_struct *vma)
 {
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	/* Start from 0 to use atomic_inc_unless_negative() in get_vma() */
-	atomic_set(&vma->file_ref_count, 0);
-#endif
 	INIT_LIST_HEAD(&vma->anon_vma_chain);
 }
 
@@ -736,20 +714,6 @@ static inline bool vma_is_foreign(struct vm_area_struct *vma)
 static inline bool vma_is_accessible(struct vm_area_struct *vma)
 {
 	return vma->vm_flags & VM_ACCESS_FLAGS;
-}
-
-static inline bool vma_can_speculate(struct vm_area_struct *vma,
-		unsigned int flags)
-{
-	if (vma_is_anonymous(vma))
-		return true;
-	if (!vma->vm_ops->speculative)
-		return false;
-	if (!(flags & FAULT_FLAG_WRITE))
-		return true;
-	if (!(vma->vm_flags & VM_SHARED))
-		return true;
-	return false;
 }
 
 #ifdef CONFIG_SHMEM
@@ -1828,15 +1792,9 @@ int generic_error_remove_page(struct address_space *mapping, struct page *page);
 int invalidate_inode_page(struct page *page);
 
 #ifdef CONFIG_MMU
-extern vm_fault_t do_handle_mm_fault(struct vm_area_struct *vma,
-		unsigned long address, unsigned int flags,
-		unsigned long seq, struct pt_regs *regs);
-static inline vm_fault_t handle_mm_fault(struct vm_area_struct *vma,
-		unsigned long address, unsigned int flags,
-		struct pt_regs *regs)
-{
-	return do_handle_mm_fault(vma, address, flags, 0, regs);
-}
+extern vm_fault_t handle_mm_fault(struct vm_area_struct *vma,
+				  unsigned long address, unsigned int flags,
+				  struct pt_regs *regs);
 extern int fixup_user_fault(struct mm_struct *mm,
 			    unsigned long address, unsigned int fault_flags,
 			    bool *unlocked);
@@ -2747,19 +2705,10 @@ extern int expand_upwards(struct vm_area_struct *vma, unsigned long address);
   #define expand_upwards(vma, address) (0)
 #endif
 
-extern struct vm_area_struct *find_vma_from_tree(struct mm_struct *mm,
-						 unsigned long addr);
 /* Look up the first VMA which satisfies  addr < vm_end,  NULL if none. */
-extern struct vm_area_struct * __find_vma(struct mm_struct * mm, unsigned long addr);
+extern struct vm_area_struct * find_vma(struct mm_struct * mm, unsigned long addr);
 extern struct vm_area_struct * find_vma_prev(struct mm_struct * mm, unsigned long addr,
 					     struct vm_area_struct **pprev);
-
-static inline
-struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
-{
-	mmap_assert_locked(mm);
-	return __find_vma(mm, addr);
-}
 
 /**
  * find_vma_intersection() - Look up the first VMA which intersects the interval
@@ -3390,26 +3339,6 @@ madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
 #endif
 
 #ifdef CONFIG_MMU
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-
-bool __pte_map_lock(struct vm_fault *vmf);
-
-static inline bool pte_map_lock(struct vm_fault *vmf)
-{
-	VM_BUG_ON(vmf->pte);
-	return __pte_map_lock(vmf);
-}
-
-static inline bool pte_spinlock(struct vm_fault *vmf)
-{
-	VM_BUG_ON(!vmf->pte);
-	return __pte_map_lock(vmf);
-}
-
-struct vm_area_struct *get_vma(struct mm_struct *mm, unsigned long addr);
-void put_vma(struct vm_area_struct *vma);
-
-#else	/* !CONFIG_SPECULATIVE_PAGE_FAULT */
 
 #define pte_map_lock(___vmf)						\
 ({									\
@@ -3425,7 +3354,6 @@ void put_vma(struct vm_area_struct *vma);
 	true;								\
 })
 
-#endif	/* CONFIG_SPECULATIVE_PAGE_FAULT */
 #endif	/* CONFIG_MMU */
 
 #endif /* __KERNEL__ */

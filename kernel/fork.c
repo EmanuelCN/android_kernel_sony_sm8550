@@ -383,41 +383,10 @@ struct vm_area_struct *vm_area_dup(struct vm_area_struct *orig)
 	return new;
 }
 
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-static void __free_vm_area_struct(struct rcu_head *head)
-{
-	struct vm_area_struct *vma = container_of(head, struct vm_area_struct,
-						  vm_rcu);
-	kmem_cache_free(vm_area_cachep, vma);
-}
-
-static inline void free_vm_area_struct(struct vm_area_struct *vma)
-{
-	call_rcu(&vma->vm_rcu, __free_vm_area_struct);
-}
-#else
-static inline void free_vm_area_struct(struct vm_area_struct *vma)
-{
-	kmem_cache_free(vm_area_cachep, vma);
-}
-#endif
-
-void vm_area_free_no_check(struct vm_area_struct *vma)
-{
-	free_anon_vma_name(vma);
-	if (vma->vm_file)
-		fput(vma->vm_file);
-	free_vm_area_struct(vma);
-}
-
 void vm_area_free(struct vm_area_struct *vma)
 {
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	/* Free only after refcount dropped to negative */
-	if (atomic_dec_return(&vma->file_ref_count) >= 0)
-		return;
-#endif
-	vm_area_free_no_check(vma);
+	free_anon_vma_name(vma);
+	kmem_cache_free(vm_area_cachep, vma);
 }
 
 static void account_kernel_stack(struct task_struct *tsk, int account)
@@ -679,7 +648,6 @@ fail_uprobe_end:
 fail_nomem_anon_vma_fork:
 	mpol_put(vma_policy(tmp));
 fail_nomem_policy:
-	tmp->vm_file = NULL;	/* prevents fput within vm_area_free() */
 	vm_area_free(tmp);
 fail_nomem:
 	retval = -ENOMEM;
@@ -1132,8 +1100,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	mm_init_owner(mm, p);
 	mm_init_pasid(mm);
 	RCU_INIT_POINTER(mm->exe_file, NULL);
-	if (!mmu_notifier_subscriptions_init(mm))
-		goto fail_nopgd;
+	mmu_notifier_subscriptions_init(mm);
 	init_tlb_flush_pending(mm);
 #if defined(CONFIG_TRANSPARENT_HUGEPAGE) && !USE_SPLIT_PMD_PTLOCKS
 	mm->pmd_huge_pte = NULL;

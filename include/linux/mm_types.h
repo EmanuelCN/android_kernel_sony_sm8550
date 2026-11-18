@@ -328,27 +328,16 @@ struct anon_vma_name {
  * per VM-area/task. A VM area is any part of the process virtual memory
  * space that has a special rule for the page-fault handlers (ie a shared
  * library, the executable area etc).
- *
- * Note that speculative page faults make an on-stack copy of the VMA,
- * so the structure size matters.
- * (TODO - it would be preferable to copy only the required vma attributes
- *  rather than the entire vma).
  */
 struct vm_area_struct {
 	/* The first cache line has the info for VMA tree walking. */
 
-	union {
-		struct {
-			/* VMA covers [vm_start; vm_end) addresses within mm */
-			unsigned long vm_start, vm_end;
+	unsigned long vm_start;		/* Our start address within vm_mm. */
+	unsigned long vm_end;		/* The first byte after our end address
+					   within vm_mm. */
 
-			/* linked list of VMAs per task, sorted by address */
-			struct vm_area_struct *vm_next, *vm_prev;
-		};
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-		struct rcu_head vm_rcu;	/* Used for deferred freeing. */
-#endif
-	};
+	/* linked list of VM areas per task, sorted by address */
+	struct vm_area_struct *vm_next, *vm_prev;
 
 	struct rb_node vm_rb;
 
@@ -420,14 +409,6 @@ struct vm_area_struct {
 	struct mempolicy *vm_policy;	/* NUMA policy for the VMA */
 #endif
 	struct vm_userfaultfd_ctx vm_userfaultfd_ctx;
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	/*
-	 * The name does not reflect the usage and is not renamed to keep
-	 * the ABI intact.
-	 * This is used to refcount VMA in get_vma/put_vma.
-	 */
-	atomic_t file_ref_count;
-#endif
 
 	ANDROID_KABI_RESERVE(1);
 	ANDROID_KABI_RESERVE(2);
@@ -520,9 +501,6 @@ struct mm_struct {
 		 * cacheline.
 		 */
 		struct rw_semaphore mmap_lock;
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-		unsigned long mmap_seq;
-#endif
 
 
 		struct list_head mmlist; /* List of maybe swapped mm's.	These
@@ -596,9 +574,6 @@ struct mm_struct {
 		struct file __rcu *exe_file;
 #ifdef CONFIG_MMU_NOTIFIER
 		struct mmu_notifier_subscriptions *notifier_subscriptions;
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-		struct percpu_rw_semaphore *mmu_notifier_lock;
-#endif	/* CONFIG_SPECULATIVE_PAGE_FAULT */
 #endif	/* CONFIG_MMU_NOTIFIER */
 #if defined(CONFIG_TRANSPARENT_HUGEPAGE) && !USE_SPLIT_PMD_PTLOCKS
 		pgtable_t pmd_huge_pte; /* protected by page_table_lock */

@@ -1186,10 +1186,6 @@ void do_user_addr_fault(struct pt_regs *regs,
 	struct mm_struct *mm;
 	vm_fault_t fault;
 	unsigned int flags = FAULT_FLAG_DEFAULT;
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	struct vm_area_struct pvma;
-	unsigned long seq;
-#endif
 
 	tsk = current;
 	mm = tsk->mm;
@@ -1286,63 +1282,6 @@ void do_user_addr_fault(struct pt_regs *regs,
 			return;
 	}
 #endif
-
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	/*
-	 * No need to try speculative faults for kernel or
-	 * single threaded user space.
-	 */
-	if (!(flags & FAULT_FLAG_USER) || atomic_read(&mm->mm_users) == 1)
-		goto no_spf;
-
-	count_vm_event(SPF_ATTEMPT);
-	seq = mmap_seq_read_start(mm);
-	if (seq & 1) {
-		count_vm_spf_event(SPF_ABORT_ODD);
-		goto spf_abort;
-	}
-	vma = get_vma(mm, address);
-	if (!vma) {
-		count_vm_spf_event(SPF_ABORT_UNMAPPED);
-		goto spf_abort;
-	}
-
-	if (!vma_can_speculate(vma, flags)) {
-		put_vma(vma);
-		count_vm_spf_event(SPF_ABORT_NO_SPECULATE);
-		goto spf_abort;
-	}
-	pvma = *vma;
-	if (!mmap_seq_read_check(mm, seq, SPF_ABORT_VMA_COPY)) {
-		put_vma(vma);
-		goto spf_abort;
-	}
-	if (unlikely(access_error(error_code, &pvma))) {
-		put_vma(vma);
-		count_vm_spf_event(SPF_ABORT_ACCESS_ERROR);
-		goto spf_abort;
-	}
-	fault = do_handle_mm_fault(&pvma, address,
-			flags | FAULT_FLAG_SPECULATIVE, seq, regs);
-	put_vma(vma);
-
-	if (!(fault & VM_FAULT_RETRY))
-		goto done;
-
-	/* Quick path to respond to signals */
-	if (fault_signal_pending(fault, regs)) {
-		if (!user_mode(regs))
-			kernelmode_fixup_or_oops(regs, error_code, address,
-						 SIGBUS, BUS_ADRERR,
-						 ARCH_DEFAULT_PKEY);
-		return;
-	}
-
-spf_abort:
-	count_vm_event(SPF_ABORT);
-no_spf:
-
-#endif	/* CONFIG_SPECULATIVE_PAGE_FAULT */
 
 	/*
 	 * Kernel-mode access to the user address space should only occur
@@ -1441,9 +1380,6 @@ good_area:
 	}
 
 	mmap_read_unlock(mm);
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-done:
-#endif
 	if (likely(!(fault & VM_FAULT_ERROR)))
 		return;
 

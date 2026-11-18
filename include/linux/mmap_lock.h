@@ -9,16 +9,8 @@
 #include <linux/types.h>
 #include <linux/vm_event.h>
 
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-#define MMAP_LOCK_SEQ_INITIALIZER(name) \
-	.mmap_seq = 0,
-#else
-#define MMAP_LOCK_SEQ_INITIALIZER(name)
-#endif
-
-#define MMAP_LOCK_INITIALIZER(name)				\
-	.mmap_lock = __RWSEM_INITIALIZER((name).mmap_lock),	\
-	MMAP_LOCK_SEQ_INITIALIZER(name)
+#define MMAP_LOCK_INITIALIZER(name) \
+	.mmap_lock = __RWSEM_INITIALIZER((name).mmap_lock),
 
 DECLARE_TRACEPOINT(mmap_lock_start_locking);
 DECLARE_TRACEPOINT(mmap_lock_acquire_returned);
@@ -72,66 +64,13 @@ static inline void __mmap_lock_trace_released(struct mm_struct *mm, bool write)
 static inline void mmap_init_lock(struct mm_struct *mm)
 {
 	init_rwsem(&mm->mmap_lock);
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	mm->mmap_seq = 0;
-#endif
 }
-
-static inline void __mmap_seq_write_lock(struct mm_struct *mm)
-{
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	VM_BUG_ON_MM(mm->mmap_seq & 1, mm);
-	mm->mmap_seq++;
-	smp_wmb();
-#endif
-}
-
-static inline void __mmap_seq_write_unlock(struct mm_struct *mm)
-{
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	smp_wmb();
-	mm->mmap_seq++;
-	VM_BUG_ON_MM(mm->mmap_seq & 1, mm);
-#endif
-}
-
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-static inline unsigned long mmap_seq_read_start(struct mm_struct *mm)
-{
-	unsigned long seq;
-
-	seq = READ_ONCE(mm->mmap_seq);
-	smp_rmb();
-	return seq;
-}
-
-static inline bool __mmap_seq_read_check(struct mm_struct *mm,
-					 unsigned long seq)
-{
-	smp_rmb();
-	return seq == READ_ONCE(mm->mmap_seq);
-}
-
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT_STATS
-static inline bool mmap_seq_read_check(struct mm_struct *mm, unsigned long seq,
-	enum vm_event_item fail_event)
-{
-	if (__mmap_seq_read_check(mm, seq))
-		return true;
-	count_vm_event(fail_event);
-	return false;
-}
-#else
-#define mmap_seq_read_check(mm, seq, fail) __mmap_seq_read_check(mm, seq)
-#endif /* CONFIG_SPECULATIVE_PAGE_FAULT_STATS */
-#endif /* CONFIG_SPECULATIVE_PAGE_FAULT */
 
 static inline void mmap_write_lock(struct mm_struct *mm)
 {
 	__mmap_lock_trace_start_locking(mm, true);
 	down_write(&mm->mmap_lock);
 	__mmap_lock_trace_acquire_returned(mm, true, true);
-	__mmap_seq_write_lock(mm);
 }
 
 static inline void mmap_write_lock_nested(struct mm_struct *mm, int subclass)
@@ -139,7 +78,6 @@ static inline void mmap_write_lock_nested(struct mm_struct *mm, int subclass)
 	__mmap_lock_trace_start_locking(mm, true);
 	down_write_nested(&mm->mmap_lock, subclass);
 	__mmap_lock_trace_acquire_returned(mm, true, true);
-	__mmap_seq_write_lock(mm);
 }
 
 static inline int mmap_write_lock_killable(struct mm_struct *mm)
@@ -149,8 +87,6 @@ static inline int mmap_write_lock_killable(struct mm_struct *mm)
 	__mmap_lock_trace_start_locking(mm, true);
 	error = down_write_killable(&mm->mmap_lock);
 	__mmap_lock_trace_acquire_returned(mm, true, !error);
-	if (likely(!error))
-		__mmap_seq_write_lock(mm);
 	return error;
 }
 
@@ -161,22 +97,18 @@ static inline bool mmap_write_trylock(struct mm_struct *mm)
 	__mmap_lock_trace_start_locking(mm, true);
 	ok = down_write_trylock(&mm->mmap_lock) != 0;
 	__mmap_lock_trace_acquire_returned(mm, true, ok);
-	if (likely(ok))
-		__mmap_seq_write_lock(mm);
 	return ok;
 }
 
 static inline void mmap_write_unlock(struct mm_struct *mm)
 {
 	__mmap_lock_trace_released(mm, true);
-	__mmap_seq_write_unlock(mm);
 	up_write(&mm->mmap_lock);
 }
 
 static inline void mmap_write_downgrade(struct mm_struct *mm)
 {
 	__mmap_lock_trace_acquire_returned(mm, false, true);
-	__mmap_seq_write_unlock(mm);
 	downgrade_write(&mm->mmap_lock);
 }
 

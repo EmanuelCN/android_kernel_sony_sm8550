@@ -1043,8 +1043,6 @@ CONFIG_MEMFD_ASHMEM_SHIM=y
 # CONFIG_DAMON is not set
 # end of Data Access Monitoring
 
-CONFIG_ARCH_SUPPORTS_SPECULATIVE_PAGE_FAULT=y
-# CONFIG_SPECULATIVE_PAGE_FAULT is not set
 # end of Memory Management options
 
 CONFIG_NET=y
