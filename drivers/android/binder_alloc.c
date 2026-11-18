@@ -362,6 +362,8 @@ static int binder_install_single_page(struct binder_alloc *alloc,
 			ret = -ESRCH;
 			break;
 		}
+		/* The original installer supplied the allocator's reference. */
+		put_page(page);
 		fallthrough;
 	case 0:
 		/* Mark page installation complete and safe to use */
