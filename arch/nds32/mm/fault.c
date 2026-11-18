@@ -123,50 +123,16 @@ void do_page_fault(unsigned long entry, unsigned long addr,
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, addr);
 
-	/*
-	 * As per x86, we may deadlock here. However, since the kernel only
-	 * validly references user space from well defined areas of the code,
-	 * we can bug out early if this is from code which shouldn't.
-	 */
-	if (unlikely(!mmap_read_trylock(mm))) {
-		if (!user_mode(regs) &&
-		    !search_exception_tables(instruction_pointer(regs)))
-			goto no_context;
 retry:
-		mmap_read_lock(mm);
-	} else {
-		/*
-		 * The above down_read_trylock() might have succeeded in which
-		 * case, we'll have missed the might_sleep() from down_read().
-		 */
-		might_sleep();
-		if (IS_ENABLED(CONFIG_DEBUG_VM)) {
-			if (!user_mode(regs) &&
-			    !search_exception_tables(instruction_pointer(regs)))
-				goto no_context;
-		}
-	}
-
-	vma = find_vma(mm, addr);
-
+	vma = lock_mm_and_find_vma(mm, addr, regs);
 	if (unlikely(!vma))
-		goto bad_area;
-
-	if (vma->vm_start <= addr)
-		goto good_area;
-
-	if (unlikely(!(vma->vm_flags & VM_GROWSDOWN)))
-		goto bad_area;
-
-	if (unlikely(expand_stack(vma, addr)))
-		goto bad_area;
+		goto bad_area_nosemaphore;
 
 	/*
 	 * Ok, we have a good vm_area for this memory access, so
 	 * we can handle it..
 	 */
 
-good_area:
 	si_code = SEGV_ACCERR;
 
 	/* first do some preliminary protection checks */
