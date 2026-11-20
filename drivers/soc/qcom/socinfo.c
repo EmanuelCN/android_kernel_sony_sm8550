@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2009-2017, 2021 The Linux Foundation. All rights reserved.
  * Copyright (c) 2017-2019, Linaro Ltd.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -1232,6 +1232,7 @@ static const struct soc_id soc_id[] = {
 	{ 422, "IPQ6010" },
 	{ 425, "SC7180" },
 	{ 441, "QM_SCUBA" },
+	{ 445, "SM6115P" },
 	{ 453, "IPQ6005" },
 	{ 455, "QRB5165" },
 	{ 457, "WAIPIO" },
@@ -1280,6 +1281,8 @@ static const struct soc_id soc_id[] = {
 	{ 606, "MONACOAU_IVI"},
 	{ 607, "MONACOAU_SRV1L"},
 	{ 608, "CROW" },
+	{ 621, "QWM2290" },
+	{ 622, "QWS2290" },
 	{ 644, "CROW_LTE" },
 	{ 668, "QCS_KALAMAP_N"},
 	{ 687, "CROWP" },

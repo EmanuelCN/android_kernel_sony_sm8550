@@ -225,18 +225,21 @@ int fuse_create_open_backing(
 	backing_dentry = lookup_one_len(fa->in_args[1].value,
 					dir_fuse_dentry->backing_path.dentry,
 					strlen(fa->in_args[1].value));
-	inode_unlock(dir_fuse_inode->backing_inode);
 
-	if (IS_ERR(backing_dentry))
+	if (IS_ERR(backing_dentry)) {
+		inode_unlock(dir_fuse_inode->backing_inode);
 		return PTR_ERR(backing_dentry);
+	}
 
 	if (d_really_is_positive(backing_dentry)) {
+		inode_unlock(dir_fuse_inode->backing_inode);
 		err = -EIO;
 		goto out;
 	}
 
 	err = vfs_create(&init_user_ns,  dir_fuse_inode->backing_inode,
 			 backing_dentry, fci->mode, true);
+	inode_unlock(dir_fuse_inode->backing_inode);
 	if (err)
 		goto out;
 
@@ -264,12 +267,11 @@ int fuse_create_open_backing(
 	fuse_entry->bpf = NULL;
 
 	newent = d_splice_alias(inode, entry);
+	inode = NULL;
 	if (IS_ERR(newent)) {
 		err = PTR_ERR(newent);
 		goto out;
 	}
-
-	inode = NULL;
 	entry = newent ? newent : entry;
 	err = finish_open(file, entry, fuse_open_file_backing);
 
@@ -972,7 +974,6 @@ void *fuse_file_write_iter_finalize(struct fuse_bpf_args *fa,
 	return ERR_PTR(fwio->ret);
 }
 
-
 long fuse_backing_ioctl(struct file *file, unsigned int command, unsigned long arg, int flags)
 {
 	struct fuse_file *ff = file->private_data;
@@ -1014,14 +1015,10 @@ ssize_t fuse_backing_mmap(struct file *file, struct vm_area_struct *vma)
 	if (WARN_ON(file != vma->vm_file))
 		return -EIO;
 
-	vma->vm_file = get_file(backing_file);
-
+	vma_set_file(vma, backing_file);
 	ret = call_mmap(vma->vm_file, vma);
-
 	if (ret)
-		fput(backing_file);
-	else
-		fput(file);
+		return ret;
 
 	if (file->f_flags & O_NOATIME)
 		return ret;
@@ -1164,24 +1161,32 @@ int fuse_handle_backing(struct fuse_entry_bpf *feb, struct inode **backing_inode
 		/* backing inode/path are added in fuse_lookup_backing */
 		break;
 
-	case FUSE_ACTION_REMOVE:
-		iput(*backing_inode);
-		*backing_inode = NULL;
+	case FUSE_ACTION_REMOVE: {
+		struct inode *old_inode = NULL;
+
+		if (backing_inode)
+			old_inode = xchg(backing_inode, NULL);
+		iput(old_inode);
 		path_put_init(backing_path);
 		break;
+	}
 
 	case FUSE_ACTION_REPLACE: {
 		struct file *backing_file = feb->backing_file;
+		struct inode *new_inode;
+		struct inode *old_inode = NULL;
 
 		if (!backing_file)
 			return -EINVAL;
 		if (IS_ERR(backing_file))
 			return PTR_ERR(backing_file);
 
-		if (backing_inode)
-			iput(*backing_inode);
-		*backing_inode = backing_file->f_inode;
-		ihold(*backing_inode);
+		new_inode = backing_file->f_inode;
+		if (backing_inode) {
+			ihold(new_inode);
+			old_inode = xchg(backing_inode, new_inode);
+			iput(old_inode);
+		}
 
 		path_put(backing_path);
 		*backing_path = backing_file->f_path;
@@ -1301,8 +1306,7 @@ struct dentry *fuse_lookup_finalize(struct fuse_bpf_args *fa, struct inode *dir,
 
 		get_fuse_inode(inode)->nodeid = feo->nodeid;
 		ret = d_splice_alias(inode, entry);
-		if (!IS_ERR(ret))
-			inode = NULL;
+		inode = NULL;
 	}
 out:
 	iput(inode);
@@ -1411,7 +1415,7 @@ int fuse_mknod_backing(
 		 */
 		goto out;
 	}
-	inode = fuse_iget_backing(dir->i_sb, fuse_inode->nodeid, backing_inode);
+	inode = fuse_iget_backing(dir->i_sb, 0, d_inode(backing_path.dentry));
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
 		goto out;
@@ -1852,7 +1856,7 @@ int fuse_link_backing(struct fuse_bpf_args *fa, struct dentry *entry,
 		goto out;
 	}
 
-	fuse_new_inode = fuse_iget_backing(dir->i_sb, fuse_dir_inode->nodeid, backing_dir_inode);
+	fuse_new_inode = fuse_iget_backing(dir->i_sb, 0, d_inode(backing_new_path.dentry));
 	if (IS_ERR(fuse_new_inode)) {
 		err = PTR_ERR(fuse_new_inode);
 		goto out;
@@ -2242,7 +2246,7 @@ int fuse_symlink_backing(
 		 */
 		goto out;
 	}
-	inode = fuse_iget_backing(dir->i_sb, fuse_inode->nodeid, backing_inode);
+	inode = fuse_iget_backing(dir->i_sb, 0, d_inode(backing_path.dentry));
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
 		goto out;

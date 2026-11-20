@@ -70,8 +70,8 @@ out_free_dma_mem:
 	kfree(dma_mem);
 out_unmap_membase:
 	memunmap(mem_base);
-	pr_err("Reserved memory: failed to init DMA memory pool at %pa, size %zd MiB\n",
-		&phys_addr, size / SZ_1M);
+	pr_err("Reserved memory: failed to init DMA memory pool at %pa, size %zu KiB\n",
+		&phys_addr, size / SZ_1K);
 	return ERR_PTR(-ENOMEM);
 }
 
@@ -336,17 +336,22 @@ static struct reserved_mem *dma_reserved_default_memory __initdata;
 
 static int rmem_dma_device_init(struct reserved_mem *rmem, struct device *dev)
 {
-	if (!rmem->priv) {
-		struct dma_coherent_mem *mem;
+	struct dma_coherent_mem *mem = rmem->priv;
 
+	if (!mem) {
 		mem = dma_init_coherent_memory(rmem->base, rmem->base,
 					       rmem->size, true);
 		if (IS_ERR(mem))
 			return PTR_ERR(mem);
 		rmem->priv = mem;
 	}
-	dma_assign_coherent_memory(dev, rmem->priv);
-	return 0;
+
+	/* Warn if the device potentially can't use the reserved memory */
+	if (mem->device_base + rmem->size - 1 >
+	    min_not_zero(dev->coherent_dma_mask, dev->bus_dma_limit))
+		dev_warn(dev, "reserved memory is beyond device's set DMA address range\n");
+
+	return dma_assign_coherent_memory(dev, mem);
 }
 
 static void rmem_dma_device_release(struct reserved_mem *rmem,
@@ -384,8 +389,8 @@ static int __init rmem_dma_setup(struct reserved_mem *rmem)
 #endif
 
 	rmem->ops = &rmem_dma_ops;
-	pr_info("Reserved memory: created DMA memory pool at %pa, size %ld MiB\n",
-		&rmem->base, (unsigned long)rmem->size / SZ_1M);
+	pr_info("Reserved memory: created DMA memory pool at %pa, size %llu KiB\n",
+		&rmem->base, (unsigned long long)(rmem->size / SZ_1K));
 	return 0;
 }
 

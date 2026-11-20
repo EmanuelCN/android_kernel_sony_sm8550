@@ -22,6 +22,7 @@
 #include "camss-csiphy.h"
 #include "camss-ispif.h"
 #include "camss-vfe.h"
+#include "camss-format.h"
 
 #define to_camss(ptr_module)	\
 	container_of(ptr_module, struct camss, ptr_module)
@@ -41,52 +42,105 @@
 
 #define CAMSS_RES_MAX 17
 
-struct resources {
-	char *regulator[CAMSS_RES_MAX];
+#define CAMSS_ICC_MAX_PATH_COUNT (20)
+
+enum camss_client {
+	ICC_CAMSS,
+	ICC_CSIPHY,
+	ICC_CSID,
+	ICC_VFE,
+	ICC_ISPIF,
+	ICC_VIDEO,
+};
+
+struct camss_subdev_resources {
+	bool is_disabled;
+	u8   resource_id;
+	char *regulators[CAMSS_RES_MAX];
 	char *clock[CAMSS_RES_MAX];
+	char *clock_for_reset[CAMSS_RES_MAX];
 	u32 clock_rate[CAMSS_RES_MAX][CAMSS_RES_MAX];
 	char *reg[CAMSS_RES_MAX];
 	char *interrupt[CAMSS_RES_MAX];
+	char *icc_clk[CAMSS_RES_MAX];
+	union {
+		struct csiphy_subdev_resources csiphy;
+		struct csid_subdev_resources csid;
+		struct vfe_subdev_resources vfe;
+	};
 };
 
-struct resources_ispif {
-	char *clock[CAMSS_RES_MAX];
-	char *clock_for_reset[CAMSS_RES_MAX];
-	char *reg[CAMSS_RES_MAX];
-	char *interrupt;
+struct icc_bw_tbl {
+	u32 avg;
+	u32 peak;
+};
+
+struct resources_icc {
+	char *name;
+	struct icc_bw_tbl icc_bw_tbl;
+	enum camss_client client;
+};
+
+struct resources_wrapper {
+	char *reg;
 };
 
 enum pm_domain {
 	PM_DOMAIN_VFE0 = 0,
 	PM_DOMAIN_VFE1 = 1,
-	PM_DOMAIN_GEN1_COUNT = 2,	/* CAMSS series of ISPs */
 	PM_DOMAIN_VFELITE = 2,		/* VFELITE / TOP GDSC */
-	PM_DOMAIN_GEN2_COUNT = 3,	/* Titan series of ISPs */
 };
 
 enum camss_version {
-	CAMSS_8x16,
-	CAMSS_8x96,
 	CAMSS_660,
+	CAMSS_2290,
+	CAMSS_7280,
+	CAMSS_8x16,
+	CAMSS_8x53,
+	CAMSS_8x96,
+	CAMSS_8250,
+	CAMSS_8280XP,
+	CAMSS_8300,
 	CAMSS_845,
+	CAMSS_8550,
+	CAMSS_8550GEN2,
+	CAMSS_8775P,
+	CAMSS_X1E80100,
+};
+
+struct camss_resources {
+	enum camss_version version;
+	const char *pd_name;
+	const struct camss_subdev_resources *csiphy_res;
+	const struct camss_subdev_resources *csid_res;
+	const struct camss_subdev_resources *ispif_res;
+	const struct camss_subdev_resources *vfe_res;
+	const struct resources_wrapper *csid_wrapper_res;
+	const struct resources_icc *icc_res;
+	const unsigned int icc_path_num;
+	const unsigned int csiphy_num;
+	const unsigned int csid_num;
+	const unsigned int vfe_num;
+	int (*link_entities)(struct camss *camss);
 };
 
 struct camss {
-	enum camss_version version;
 	struct v4l2_device v4l2_dev;
 	struct v4l2_async_notifier notifier;
 	struct media_device media_dev;
 	struct device *dev;
-	int csiphy_num;
 	struct csiphy_device *csiphy;
-	int csid_num;
 	struct csid_device *csid;
 	struct ispif_device *ispif;
-	int vfe_num;
 	struct vfe_device *vfe;
+	void __iomem *csid_wrapper_base;
 	atomic_t ref_count;
-	struct device *genpd[PM_DOMAIN_GEN2_COUNT];
-	struct device_link *genpd_link[PM_DOMAIN_GEN2_COUNT];
+	int genpd_num;
+	struct device *genpd;
+	struct device_link *genpd_link;
+	struct icc_path *icc_path[CAMSS_ICC_MAX_PATH_COUNT];
+	const struct camss_resources *res;
+	u8 perf_level;
 };
 
 struct camss_camera_interface {
@@ -106,6 +160,15 @@ struct camss_clock {
 	u32 nfreqs;
 };
 
+struct parent_dev_ops {
+	int (*get)(struct camss *camss, int id);
+	int (*put)(struct camss *camss, int id);
+	void __iomem *(*get_base_address)(struct camss *camss, int id);
+};
+
+void camss_set_perf_level(struct camss *camss, u32 level);
+u32 camss_get_perf_level(struct camss *camss);
+
 void camss_add_clock_margin(u64 *rate);
 int camss_enable_clocks(int nclocks, struct camss_clock *clock,
 			struct device *dev);
@@ -116,6 +179,12 @@ s64 camss_get_link_freq(struct media_entity *entity, unsigned int bpp,
 int camss_get_pixel_clock(struct media_entity *entity, u64 *pixel_clock);
 int camss_pm_domain_on(struct camss *camss, int id);
 void camss_pm_domain_off(struct camss *camss, int id);
+int camss_vfe_get(struct camss *camss, int id);
+void camss_vfe_put(struct camss *camss, int id);
 void camss_delete(struct camss *camss);
+void camss_buf_done(struct camss *camss, int hw_id, int port_id);
+void camss_reg_update(struct camss *camss, int hw_id,
+		      int port_id, bool is_clear);
+int camss_icc_set_clk(struct camss *camss, char *name, u32 avg, u32 peak);
 
 #endif /* QC_MSM_CAMSS_H */
