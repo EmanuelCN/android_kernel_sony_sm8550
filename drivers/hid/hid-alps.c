@@ -827,7 +827,20 @@ static int alps_probe(struct hid_device *hdev, const struct hid_device_id *id)
 
 static void alps_remove(struct hid_device *hdev)
 {
+	struct alps_dev *data = hid_get_drvdata(hdev);
+
+	/*
+	 * input2 ("DualPoint Stick") is allocated separately and is not
+	 * tracked in hdev->inputs, so the default remove path
+	 * (hid_hw_stop -> hidinput_disconnect) does not unregister it.
+	 *
+	 * Stop the device first so that no URB callback can touch input2
+	 * while it is being unregistered, then drop it explicitly.
+	 */
 	hid_hw_stop(hdev);
+
+	if (data->input2)
+		input_unregister_device(data->input2);
 }
 
 static const struct hid_device_id alps_id[] = {
@@ -847,7 +860,6 @@ static struct hid_driver alps_driver = {
 	.name = "hid-alps",
 	.id_table		= alps_id,
 	.probe			= alps_probe,
-	.remove			= alps_remove,
 	.raw_event		= alps_raw_event,
 	.input_mapping		= alps_input_mapping,
 	.input_configured	= alps_input_configured,
@@ -855,6 +867,7 @@ static struct hid_driver alps_driver = {
 	.resume			= alps_post_resume,
 	.reset_resume		= alps_post_reset,
 #endif
+	.remove			= alps_remove,
 };
 
 module_hid_driver(alps_driver);

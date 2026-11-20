@@ -10,6 +10,7 @@ TARGETS += cpufreq
 TARGETS += cpu-hotplug
 TARGETS += damon
 TARGETS += drivers/dma-buf
+TARGETS += drivers/wrapfd
 TARGETS += efivarfs
 TARGETS += exec
 TARGETS += filesystems
