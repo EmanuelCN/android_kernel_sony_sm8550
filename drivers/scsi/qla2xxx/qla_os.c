@@ -1216,7 +1216,8 @@ qla2x00_wait_for_hba_ready(scsi_qla_host_t *vha)
 	while ((qla2x00_reset_active(vha) || ha->dpc_active ||
 		ha->flags.mbox_busy) ||
 	       test_bit(FX00_RESET_RECOVERY, &vha->dpc_flags) ||
-	       test_bit(FX00_TARGET_SCAN, &vha->dpc_flags)) {
+	       test_bit(FX00_TARGET_SCAN, &vha->dpc_flags) ||
+	       (vha->scan.scan_flags & SF_SCANNING)) {
 		if (test_bit(UNLOADING, &base_vha->dpc_flags))
 			break;
 		msleep(1000);
@@ -1861,12 +1862,6 @@ __qla2x00_abort_all_cmds(struct qla_qpair *qp, int res)
 	for (cnt = 1; cnt < req->num_outstanding_cmds; cnt++) {
 		sp = req->outstanding_cmds[cnt];
 		if (sp) {
-			if (qla2x00_chip_is_down(vha)) {
-				req->outstanding_cmds[cnt] = NULL;
-				sp->done(sp, res);
-				continue;
-			}
-
 			switch (sp->cmd_type) {
 			case TYPE_SRB:
 				qla2x00_abort_srb(qp, sp, res, &flags);
@@ -2118,7 +2113,7 @@ skip_pio:
 		ha->msix_count = msix + 1;
 		/* Max queues are bounded by available msix vectors */
 		/* MB interrupt uses 1 vector */
-		ha->max_req_queues = ha->msix_count - 1;
+		ha->max_req_queues = qla_calc_queue_count(ha->msix_count);
 		ha->max_rsp_queues = ha->max_req_queues;
 		/* Queue pairs is the max value minus the base queue pair */
 		ha->max_qpairs = ha->max_rsp_queues - 1;
@@ -2204,10 +2199,10 @@ qla83xx_iospace_config(struct qla_hw_data *ha)
 		 */
 		if (ql2xmqsupport || ql2xnvmeenable) {
 			/* MB interrupt uses 1 vector */
-			ha->max_req_queues = ha->msix_count - 1;
+			ha->max_req_queues = qla_calc_queue_count(ha->msix_count);
 
 			/* ATIOQ needs 1 vector. That's 1 less QPair */
-			if (QLA_TGT_MODE_ENABLED())
+			if (QLA_TGT_MODE_ENABLED() && ha->max_req_queues > 1)
 				ha->max_req_queues--;
 
 			ha->max_rsp_queues = ha->max_req_queues;
@@ -3425,13 +3420,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	    base_vha->mgmt_svr_loop_id, host->sg_tablesize);
 
 	if (ha->mqenable) {
-		bool startit = false;
-
-		if (QLA_TGT_MODE_ENABLED())
-			startit = false;
-
-		if (ql2x_ini_mode == QLA2XXX_INI_MODE_ENABLED)
-			startit = true;
+		bool startit = !!(host->active_mode & MODE_INITIATOR);
 
 		/* Create start of day qpairs for Block MQ */
 		for (i = 0; i < ha->max_qpairs; i++)
@@ -3904,8 +3893,6 @@ qla2x00_remove_one(struct pci_dev *pdev)
 
 	qla2x00_dfs_remove(base_vha);
 
-	qla84xx_put_chip(base_vha);
-
 	/* Disable timer */
 	if (base_vha->timer_active)
 		qla2x00_stop_timer(base_vha);
@@ -3929,6 +3916,8 @@ qla2x00_remove_one(struct pci_dev *pdev)
 	fc_remove_host(base_vha->host);
 
 	scsi_remove_host(base_vha->host);
+
+	qla84xx_put_chip(base_vha);
 
 	qla2x00_free_device(base_vha);
 
@@ -4443,7 +4432,7 @@ qla2x00_mem_alloc(struct qla_hw_data *ha, uint16_t req_len, uint16_t rsp_len,
 fail_elsrej:
 	dma_pool_destroy(ha->purex_dma_pool);
 fail_flt:
-	dma_free_coherent(&ha->pdev->dev, SFP_DEV_SIZE,
+	dma_free_coherent(&ha->pdev->dev, sizeof(struct qla_flt_header) + FLT_REGIONS_SIZE,
 	    ha->flt, ha->flt_dma);
 
 fail_flt_buffer:
@@ -5501,18 +5490,11 @@ qla2x00_do_work(struct scsi_qla_host *vha)
 			qla2x00_async_prlo_done(vha, e->u.logio.fcport,
 			    e->u.logio.data);
 			break;
-		case QLA_EVT_GPNFT:
-			qla24xx_async_gpnft(vha, e->u.gpnft.fc4_type,
-			    e->u.gpnft.sp);
+		case QLA_EVT_SCAN_CMD:
+			qla_fab_async_scan(vha, e->u.iosb.sp);
 			break;
-		case QLA_EVT_GPNFT_DONE:
-			qla24xx_async_gpnft_done(vha, e->u.iosb.sp);
-			break;
-		case QLA_EVT_GNNFT_DONE:
-			qla24xx_async_gnnft_done(vha, e->u.iosb.sp);
-			break;
-		case QLA_EVT_GNNID:
-			qla24xx_async_gnnid(vha, e->u.fcport.fcport);
+		case QLA_EVT_SCAN_FINISH:
+			qla_fab_scan_finish(vha, e->u.iosb.sp);
 			break;
 		case QLA_EVT_GFPNID:
 			qla24xx_async_gfpnid(vha, e->u.fcport.fcport);
@@ -6786,8 +6768,6 @@ qla2x00_disable_board_on_pci_error(struct work_struct *work)
 
 	qla2x00_dfs_remove(base_vha);
 
-	qla84xx_put_chip(base_vha);
-
 	if (base_vha->timer_active)
 		qla2x00_stop_timer(base_vha);
 
@@ -6804,6 +6784,8 @@ qla2x00_disable_board_on_pci_error(struct work_struct *work)
 	fc_remove_host(base_vha->host);
 
 	scsi_remove_host(base_vha->host);
+
+	qla84xx_put_chip(base_vha);
 
 	base_vha->flags.init_done = 0;
 	qla25xx_delete_queues(base_vha);

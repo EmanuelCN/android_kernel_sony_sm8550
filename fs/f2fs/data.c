@@ -953,7 +953,7 @@ alloc_new:
 	if (fio->io_wbc)
 		wbc_account_cgroup_owner(fio->io_wbc, fio->page, PAGE_SIZE);
 
-	inc_page_count(fio->sbi, WB_DATA_TYPE(page));
+	inc_page_count(fio->sbi, WB_DATA_TYPE(fio->page));
 
 	*fio->last_block = fio->new_blkaddr;
 	*fio->bio = bio;
@@ -1523,9 +1523,9 @@ int f2fs_map_blocks(struct inode *inode, struct f2fs_map_blocks *map,
 			bidx = f2fs_target_device_index(sbi, map->m_pblk);
 
 			map->m_bdev = FDEV(bidx).bdev;
-			map->m_pblk -= FDEV(bidx).start_blk;
 			map->m_len = min(map->m_len,
 				FDEV(bidx).end_blk + 1 - map->m_pblk);
+			map->m_pblk -= FDEV(bidx).start_blk;
 
 			if (map->m_may_create)
 				f2fs_update_device_state(sbi, inode->i_ino,
@@ -1535,8 +1535,11 @@ int f2fs_map_blocks(struct inode *inode, struct f2fs_map_blocks *map,
 	}
 
 next_dnode:
-	if (map->m_may_create)
+	if (map->m_may_create) {
+		if (f2fs_lfs_mode(sbi))
+			f2fs_balance_fs(sbi, true);
 		f2fs_do_map_lock(sbi, flag, true);
+	}
 
 	/* When reading holes, we need its node page */
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
@@ -2198,6 +2201,12 @@ int f2fs_read_multi_pages(struct compress_ctx *cc, struct bio **bio_ret,
 	bool from_dnode = true;
 	int i;
 	int ret = 0;
+
+	if (unlikely(f2fs_cp_error(sbi))) {
+		ret = -EIO;
+		from_dnode = false;
+		goto out_put_dnode;
+	}
 
 	f2fs_bug_on(sbi, f2fs_cluster_is_empty(cc));
 

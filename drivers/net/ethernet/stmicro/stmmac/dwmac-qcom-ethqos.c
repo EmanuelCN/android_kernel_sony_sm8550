@@ -2,7 +2,7 @@
 
 // Copyright (c) 2018-19, Linaro Limited
 // Copyright (c) 2021, The Linux Foundation. All rights reserved.
-// Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+// Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 
 #include <linux/module.h>
 #include <linux/of.h>
@@ -29,6 +29,7 @@
 #include <linux/if_arp.h>
 #include <linux/inet.h>
 #include <net/inet_common.h>
+#include <linux/clk-provider.h>
 #include "stmmac.h"
 #include "stmmac_platform.h"
 #include "dwmac-qcom-ethqos.h"
@@ -38,13 +39,14 @@
 #define PHY_LOOPBACK_1000 0x4140
 #define PHY_LOOPBACK_100 0x6100
 #define PHY_LOOPBACK_10 0x4100
+#define ETHQOS_MAX_FRAME_SIZE 2000
 
 static void ethqos_rgmii_io_macro_loopback(struct qcom_ethqos *ethqos,
 					   int mode);
 static int phy_digital_loopback_config(struct qcom_ethqos *ethqos, int speed, int config);
 static int qcom_ethqos_hib_restore(struct device *dev);
 static int qcom_ethqos_hib_freeze(struct device *dev);
-static char buf[2000];
+static char buf[ETHQOS_MAX_FRAME_SIZE];
 
 #define RGMII_IO_MACRO_DEBUG1		0x20
 #define EMAC_SYSTEM_LOW_POWER_DEBUG	0x28
@@ -276,7 +278,7 @@ void dwmac_qcom_program_avb_algorithm(struct stmmac_priv *priv,
 		(struct dwmac_qcom_avb_algorithm *)req->ptr;
 	struct dwmac_qcom_avb_algorithm_params *avb_params;
 
-	ETHQOSDBG("\n");
+	ETHQOSDBG("enter\n");
 
 	if (copy_from_user(&l_avb_struct, (void __user *)u_avb_struct,
 			   sizeof(struct dwmac_qcom_avb_algorithm)))
@@ -314,7 +316,7 @@ void dwmac_qcom_program_avb_algorithm(struct stmmac_priv *priv,
 	   priv->plat->tx_queues_cfg[l_avb_struct.qinx].low_credit,
 	   l_avb_struct.qinx);
 
-	ETHQOSDBG("\n");
+	ETHQOSDBG("exit\n");
 }
 
 unsigned int dwmac_qcom_get_plat_tx_coal_frames(struct sk_buff *skb)
@@ -1084,26 +1086,29 @@ int ethqos_configure_sgmii_v3_1(struct qcom_ethqos *ethqos)
 		writel(value, ethqos->ioaddr + MAC_CTRL_REG);
 		rgmii_updatel(ethqos, RGMII_CONFIG2_RGMII_CLK_SEL_CFG,
 			      RGMII_CONFIG2_RGMII_CLK_SEL_CFG, RGMII_IO_MACRO_CONFIG2);
-		value = readl(priv->ioaddr + DWMAC4_PCS_BASE);
-		value &= ~GMAC_AN_CTRL_ANE;
-		writel(value, priv->ioaddr + DWMAC4_PCS_BASE);
+		if (priv->plat->disable_pcs_ane)
+			stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 0, priv->hw->ps, 0);
+		else
+			stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 1, priv->hw->ps, 0);
 	break;
 	case SPEED_1000:
 		value &= ~GMAC_CONFIG_PS;
 		writel(value, ethqos->ioaddr + MAC_CTRL_REG);
 		rgmii_updatel(ethqos, RGMII_CONFIG2_RGMII_CLK_SEL_CFG,
 			      RGMII_CONFIG2_RGMII_CLK_SEL_CFG, RGMII_IO_MACRO_CONFIG2);
-		value = readl(priv->ioaddr + DWMAC4_PCS_BASE);
-		value |= GMAC_AN_CTRL_RAN | GMAC_AN_CTRL_ANE;
-		writel(value, priv->ioaddr + DWMAC4_PCS_BASE);
+		/* If required to disable auto negotiate. */
+		if (priv->plat->disable_pcs_ane)
+			stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 0, priv->hw->ps, 0);
+		else
+			stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 1, priv->hw->ps, 0);
 	break;
-
 	case SPEED_100:
 		value |= GMAC_CONFIG_PS | GMAC_CONFIG_FES;
 		writel(value, ethqos->ioaddr + MAC_CTRL_REG);
-		value = readl(priv->ioaddr + DWMAC4_PCS_BASE);
-		value |= GMAC_AN_CTRL_RAN | GMAC_AN_CTRL_ANE;
-		writel(value, priv->ioaddr + DWMAC4_PCS_BASE);
+		if (priv->plat->disable_pcs_ane)
+			stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 0, priv->hw->ps, 0);
+		else
+			stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 1, priv->hw->ps, 0);
 	break;
 	case SPEED_10:
 		value |= GMAC_CONFIG_PS;
@@ -1111,12 +1116,11 @@ int ethqos_configure_sgmii_v3_1(struct qcom_ethqos *ethqos)
 		writel(value, ethqos->ioaddr + MAC_CTRL_REG);
 		rgmii_updatel(ethqos, RGMII_CONFIG_10M_CLK_DVD, BIT(10) |
 			      GENMASK(15, 14), RGMII_IO_MACRO_CONFIG);
-		value = readl(priv->ioaddr + DWMAC4_PCS_BASE);
-		value |= GMAC_AN_CTRL_RAN | GMAC_AN_CTRL_ANE;
-		writel(value, priv->ioaddr + DWMAC4_PCS_BASE);
-
+		if (priv->plat->disable_pcs_ane)
+			stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 0, priv->hw->ps, 0);
+		else
+			stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 1, priv->hw->ps, 0);
 	break;
-
 	default:
 		dev_err(&ethqos->pdev->dev,
 			"Invalid speed %d\n", ethqos->speed);
@@ -1843,7 +1847,7 @@ static void qcom_ethqos_phy_suspend_clks(struct qcom_ethqos *ethqos)
 	if (priv->plat->pclk)
 		clk_disable_unprepare(priv->plat->pclk);
 
-	if (priv->plat->clk_ptp_ref)
+	if (priv->plat->clk_ptp_ref && __clk_is_enabled(priv->plat->clk_ptp_ref))
 		clk_disable_unprepare(priv->plat->clk_ptp_ref);
 
 	if (ethqos->rgmii_clk)
@@ -2865,6 +2869,17 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		return PTR_ERR(plat_dat);
 	}
 
+	if (of_property_read_bool(pdev->dev.of_node,
+				  "disable_pcs_ane")) {
+		plat_dat->disable_pcs_ane = true;
+		ETHQOSDBG(":property disable_pcs_ane in dtsi\n");
+	} else {
+		plat_dat->disable_pcs_ane = false;
+		ETHQOSDBG(":property disable_pcs_ane not in dtsi\n");
+	}
+	ETHQOSDBG("disable_pcs_ane = %d\n",
+		  plat_dat->disable_pcs_ane);
+
 	ethqos->rgmii_base = devm_platform_ioremap_resource_byname(pdev, "rgmii");
 	if (IS_ERR(ethqos->rgmii_base)) {
 		ret = PTR_ERR(ethqos->rgmii_base);
@@ -3166,6 +3181,17 @@ static int qcom_ethqos_suspend(struct device *dev)
 
 	priv->boot_kpi = false;
 
+	/* Suspend the PHY TXC clock. */
+	if (ethqos->rgmii_txc_suspend_state) {
+		/* Remove TXC clock source from Phy.*/
+		ret = pinctrl_select_state(ethqos->pinctrl,
+					   ethqos->rgmii_txc_suspend_state);
+	if (ret)
+		ETHQOSERR("Unable to set rgmii_txc_suspend_state state, err = %d\n", ret);
+	else
+		ETHQOSINFO("Set rgmii_txc_suspend_state succeed\n");
+	}
+
 	if (ethqos->gdsc_off_on_suspend) {
 		if (ethqos->gdsc_emac) {
 			regulator_disable(ethqos->gdsc_emac);
@@ -3215,6 +3241,17 @@ static int qcom_ethqos_resume(struct device *dev)
 	if (!ndev) {
 		ETHQOSERR(" Resume not possible\n");
 		return -EINVAL;
+	}
+
+	/* Resume the PhY TXC clock. */
+	if (ethqos->rgmii_txc_resume_state) {
+		/* Enable TXC clock source from Phy.*/
+		ret = pinctrl_select_state(ethqos->pinctrl,
+					   ethqos->rgmii_txc_resume_state);
+		if (ret)
+			ETHQOSERR("Unable to set rgmii_txc_resume_state state, err = %d\n", ret);
+		else
+			ETHQOSINFO("Set rgmii_txc_resume_state succeed\n");
 	}
 
 	if (ethqos->current_phy_mode == DISABLE_PHY_SUSPEND_ENABLE_RESUME) {

@@ -464,8 +464,19 @@ static int record_root_in_trans(struct btrfs_trans_handle *trans,
 		 * through btrfs_record_root_in_trans without having to take the
 		 * lock.  smp_wmb() makes sure that all the writes above are
 		 * done before we pop in the zero below
+		 *
+		 * If @force is true, it means the call is from
+		 * qgroup_account_snapshot(), which only requires radix tree
+		 * tracking.
+		 * We should not force reloc root creation here, as the root
+		 * may have already been modified, and in that case
+		 * root->commit_root has already been dropped.
+		 *
+		 * Using that commit root will cause the reloc root to refer
+		 * to a deleted extent, causing extent tree corruption.
 		 */
-		ret = btrfs_init_reloc_root(trans, root);
+		if (!force)
+			ret = btrfs_init_reloc_root(trans, root);
 		smp_mb__before_atomic();
 		clear_bit(BTRFS_ROOT_IN_TRANS_SETUP, &root->state);
 	}
@@ -528,13 +539,14 @@ static inline int is_transaction_blocked(struct btrfs_transaction *trans)
  * when this is done, it is safe to start a new transaction, but the current
  * transaction might not be fully on disk.
  */
-static void wait_current_trans(struct btrfs_fs_info *fs_info)
+static void wait_current_trans(struct btrfs_fs_info *fs_info, unsigned int type)
 {
 	struct btrfs_transaction *cur_trans;
 
 	spin_lock(&fs_info->trans_lock);
 	cur_trans = fs_info->running_transaction;
-	if (cur_trans && is_transaction_blocked(cur_trans)) {
+	if (cur_trans && is_transaction_blocked(cur_trans) &&
+	    (btrfs_blocked_trans_types[cur_trans->state] & type)) {
 		refcount_inc(&cur_trans->use_count);
 		spin_unlock(&fs_info->trans_lock);
 
@@ -680,12 +692,12 @@ again:
 		sb_start_intwrite(fs_info->sb);
 
 	if (may_wait_transaction(fs_info, type))
-		wait_current_trans(fs_info);
+		wait_current_trans(fs_info, type);
 
 	do {
 		ret = join_transaction(fs_info, type);
 		if (ret == -EBUSY) {
-			wait_current_trans(fs_info);
+			wait_current_trans(fs_info, type);
 			if (unlikely(type == TRANS_ATTACH ||
 				     type == TRANS_JOIN_NOSTART))
 				ret = -ENOENT;
@@ -952,7 +964,7 @@ out:
 
 void btrfs_throttle(struct btrfs_fs_info *fs_info)
 {
-	wait_current_trans(fs_info);
+	wait_current_trans(fs_info, TRANS_START);
 }
 
 static bool should_end_transaction(struct btrfs_trans_handle *trans)
@@ -1765,7 +1777,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	}
 	/* see comments in should_cow_block() */
 	set_bit(BTRFS_ROOT_FORCE_COW, &root->state);
-	smp_wmb();
+	smp_mb__after_atomic();
 
 	btrfs_set_root_node(new_root_item, tmp);
 	/* record when the snapshot was created in key.offset */

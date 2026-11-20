@@ -130,9 +130,6 @@
 #define CLASS_BITS	8
 #define MAGIC_VAL_BITS	8
 
-#define MIN(a, b) ((a) <= (b) ? (a) : (b))
-#define MAX(a, b) ((a) >= (b) ? (a) : (b))
-
 #define ZS_MAX_PAGES_PER_ZSPAGE	(_AC(CONFIG_ZSMALLOC_CHAIN_SIZE, UL))
 #define ZS_MIN_ALLOC_FLOOR	32UL
 #define ZS_MAX_OBJS_PER_ZSPAGE \
@@ -1065,6 +1062,9 @@ static struct zspage *alloc_zspage(struct zs_pool *pool,
 
 	if (unlikely(!zspage))
 		return NULL;
+
+	if (!IS_ENABLED(CONFIG_COMPACTION))
+		gfp &= ~__GFP_MOVABLE;
 
 	zspage->magic = ZSPAGE_MAGIC;
 	zspage->class = class->index;

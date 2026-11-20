@@ -60,6 +60,7 @@ const char *const lockdown_reasons[LOCKDOWN_CONFIDENTIALITY_MAX+1] = {
 	[LOCKDOWN_XMON_WR] = "xmon write access",
 	[LOCKDOWN_BPF_WRITE_USER] = "use of bpf to write user RAM",
 	[LOCKDOWN_DBG_WRITE_KERNEL] = "use of kgdb/kdb to write kernel RAM",
+	[LOCKDOWN_XEN_USER_ACTIONS] = "Xen guest user action",
 	[LOCKDOWN_INTEGRITY_MAX] = "integrity",
 	[LOCKDOWN_KCORE] = "/proc/kcore access",
 	[LOCKDOWN_KPROBES] = "use of kprobes",
@@ -1198,13 +1199,13 @@ int security_path_rename(const struct path *old_dir, struct dentry *old_dentry,
 
 	if (flags & RENAME_EXCHANGE) {
 		int err = call_int_hook(path_rename, 0, new_dir, new_dentry,
-					old_dir, old_dentry);
+					old_dir, old_dentry, flags);
 		if (err)
 			return err;
 	}
 
 	return call_int_hook(path_rename, 0, old_dir, old_dentry, new_dir,
-				new_dentry);
+				new_dentry, flags);
 }
 EXPORT_SYMBOL(security_path_rename);
 

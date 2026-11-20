@@ -18,7 +18,9 @@
 #include <linux/anon_inodes.h>
 #include <linux/export.h>
 #include <linux/debugfs.h>
+#include <linux/list.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/seq_file.h>
 #include <linux/poll.h>
 #include <linux/dma-resv.h>
@@ -40,15 +42,94 @@ void __init init_dma_buf_kmem_pool(void)
 	kmem_attach_pool = KMEM_CACHE(dma_buf_attachment, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
 }
 
-struct dma_buf_list {
-	struct list_head head;
-	struct mutex lock;
-};
+static DEFINE_MUTEX(dmabuf_list_mutex);
+static LIST_HEAD(dmabuf_list);
 
-static struct dma_buf_list db_list;
+static void __dma_buf_list_add(struct dma_buf *dmabuf)
+{
+	mutex_lock(&dmabuf_list_mutex);
+	list_add(&dmabuf->list_node, &dmabuf_list);
+	mutex_unlock(&dmabuf_list_mutex);
+}
+
+static void __dma_buf_list_del(struct dma_buf *dmabuf)
+{
+	if (!dmabuf)
+		return;
+
+	mutex_lock(&dmabuf_list_mutex);
+	list_del(&dmabuf->list_node);
+	mutex_unlock(&dmabuf_list_mutex);
+}
+
+/**
+ * dma_buf_iter_begin - begin iteration through global list of all DMA buffers
+ *
+ * Returns the first buffer in the global list of DMA-bufs that's not in the
+ * process of being destroyed. Increments that buffer's reference count to
+ * prevent buffer destruction. Callers must release the reference, either by
+ * continuing iteration with dma_buf_iter_next(), or with dma_buf_put().
+ *
+ * Return:
+ * * First buffer from global list, with refcount elevated
+ * * NULL if no active buffers are present
+ */
+struct dma_buf *dma_buf_iter_begin(void)
+{
+	struct dma_buf *ret = NULL, *dmabuf;
+
+	/*
+	 * The list mutex does not protect a dmabuf's refcount, so it can be
+	 * zeroed while we are iterating. We cannot call get_dma_buf() since the
+	 * caller may not already own a reference to the buffer.
+	 */
+	mutex_lock(&dmabuf_list_mutex);
+	list_for_each_entry(dmabuf, &dmabuf_list, list_node) {
+		if (get_file_rcu(dmabuf->file)) {
+			ret = dmabuf;
+			break;
+		}
+	}
+	mutex_unlock(&dmabuf_list_mutex);
+	return ret;
+}
+
+/**
+ * dma_buf_iter_next - continue iteration through global list of all DMA buffers
+ * @dmabuf:	[in]	pointer to dma_buf
+ *
+ * Decrements the reference count on the provided buffer. Returns the next
+ * buffer from the remainder of the global list of DMA-bufs with its reference
+ * count incremented. Callers must release the reference, either by continuing
+ * iteration with dma_buf_iter_next(), or with dma_buf_put().
+ *
+ * Return:
+ * * Next buffer from global list, with refcount elevated
+ * * NULL if no additional active buffers are present
+ */
+struct dma_buf *dma_buf_iter_next(struct dma_buf *dmabuf)
+{
+	struct dma_buf *ret = NULL;
+
+	/*
+	 * The list mutex does not protect a dmabuf's refcount, so it can be
+	 * zeroed while we are iterating. We cannot call get_dma_buf() since the
+	 * caller may not already own a reference to the buffer.
+	 */
+	mutex_lock(&dmabuf_list_mutex);
+	dma_buf_put(dmabuf);
+	list_for_each_entry_continue(dmabuf, &dmabuf_list, list_node) {
+		if (get_file_rcu(dmabuf->file)) {
+			ret = dmabuf;
+			break;
+		}
+	}
+	mutex_unlock(&dmabuf_list_mutex);
+	return ret;
+}
 
 /*
- * This function helps in traversing the db_list and calls the
+ * This function helps in traversing the dmabuf_list and calls the
  * callback function which can extract required info out of each
  * dmabuf.
  */
@@ -56,17 +137,17 @@ int get_each_dmabuf(int (*callback)(const struct dma_buf *dmabuf,
 		    void *private), void *private)
 {
 	struct dma_buf *buf;
-	int ret = mutex_lock_interruptible(&db_list.lock);
+	int ret = mutex_lock_interruptible(&dmabuf_list_mutex);
 
 	if (ret)
 		return ret;
 
-	list_for_each_entry(buf, &db_list.head, list_node) {
+	list_for_each_entry(buf, &dmabuf_list, list_node) {
 		ret = callback(buf, private);
 		if (ret)
 			break;
 	}
-	mutex_unlock(&db_list.lock);
+	mutex_unlock(&dmabuf_list_mutex);
 	return ret;
 }
 EXPORT_SYMBOL_NS_GPL(get_each_dmabuf, MINIDUMP);
@@ -119,16 +200,10 @@ static void dma_buf_release(struct dentry *dentry)
 
 static int dma_buf_file_release(struct inode *inode, struct file *file)
 {
-	struct dma_buf *dmabuf;
-
 	if (!is_dma_buf_file(file))
 		return -EINVAL;
 
-	dmabuf = file->private_data;
-
-	mutex_lock(&db_list.lock);
-	list_del(&dmabuf->list_node);
-	mutex_unlock(&db_list.lock);
+	__dma_buf_list_del(file->private_data);
 
 	return 0;
 }
@@ -638,9 +713,7 @@ struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 	mutex_init(&dmabuf->lock);
 	INIT_LIST_HEAD(&dmabuf->attachments);
 
-	mutex_lock(&db_list.lock);
-	list_add(&dmabuf->list_node, &db_list.head);
-	mutex_unlock(&db_list.lock);
+	__dma_buf_list_add(dmabuf);
 
 	ret = dma_buf_stats_setup(dmabuf);
 	if (ret)
@@ -1067,6 +1140,34 @@ struct sg_table *dma_buf_map_attachment(struct dma_buf_attachment *attach,
 EXPORT_SYMBOL_GPL(dma_buf_map_attachment);
 
 /**
+ * dma_buf_map_attachment_unlocked - Returns the scatterlist table of the attachment;
+ * mapped into _device_ address space. Is a wrapper for map_dma_buf() of the
+ * dma_buf_ops.
+ * @attach:	[in]	attachment whose scatterlist is to be returned
+ * @direction:	[in]	direction of DMA transfer
+ *
+ * Unlocked variant of dma_buf_map_attachment().
+ */
+struct sg_table *
+dma_buf_map_attachment_unlocked(struct dma_buf_attachment *attach,
+				enum dma_data_direction direction)
+{
+	struct sg_table *sg_table;
+
+	might_sleep();
+
+	if (WARN_ON(!attach || !attach->dmabuf))
+		return ERR_PTR(-EINVAL);
+
+	dma_resv_lock(attach->dmabuf->resv, NULL);
+	sg_table = dma_buf_map_attachment(attach, direction);
+	dma_resv_unlock(attach->dmabuf->resv);
+
+	return sg_table;
+}
+EXPORT_SYMBOL_NS_GPL(dma_buf_map_attachment_unlocked, DMA_BUF);
+
+/**
  * dma_buf_unmap_attachment - unmaps and decreases usecount of the buffer;might
  * deallocate the scatterlist associated. Is a wrapper for unmap_dma_buf() of
  * dma_buf_ops.
@@ -1101,6 +1202,31 @@ void dma_buf_unmap_attachment(struct dma_buf_attachment *attach,
 		dma_buf_unpin(attach);
 }
 EXPORT_SYMBOL_GPL(dma_buf_unmap_attachment);
+
+/**
+ * dma_buf_unmap_attachment_unlocked - unmaps and decreases usecount of the buffer;might
+ * deallocate the scatterlist associated. Is a wrapper for unmap_dma_buf() of
+ * dma_buf_ops.
+ * @attach:	[in]	attachment to unmap buffer from
+ * @sg_table:	[in]	scatterlist info of the buffer to unmap
+ * @direction:	[in]	direction of DMA transfer
+ *
+ * Unlocked variant of dma_buf_unmap_attachment().
+ */
+void dma_buf_unmap_attachment_unlocked(struct dma_buf_attachment *attach,
+				       struct sg_table *sg_table,
+				       enum dma_data_direction direction)
+{
+	might_sleep();
+
+	if (WARN_ON(!attach || !attach->dmabuf || !sg_table))
+		return;
+
+	dma_resv_lock(attach->dmabuf->resv, NULL);
+	dma_buf_unmap_attachment(attach, sg_table, direction);
+	dma_resv_unlock(attach->dmabuf->resv);
+}
+EXPORT_SYMBOL_NS_GPL(dma_buf_unmap_attachment_unlocked, DMA_BUF);
 
 /**
  * dma_buf_move_notify - notify attachments that DMA-buf is moving
@@ -1479,7 +1605,7 @@ static int dma_buf_debug_show(struct seq_file *s, void *unused)
 	size_t size = 0;
 	int ret;
 
-	ret = mutex_lock_interruptible(&db_list.lock);
+	ret = mutex_lock_interruptible(&dmabuf_list_mutex);
 
 	if (ret)
 		return ret;
@@ -1488,7 +1614,7 @@ static int dma_buf_debug_show(struct seq_file *s, void *unused)
 	seq_printf(s, "%-8s\t%-8s\t%-8s\t%-8s\texp_name\t%-8s\n",
 		   "size", "flags", "mode", "count", "ino");
 
-	list_for_each_entry(buf_obj, &db_list.head, list_node) {
+	list_for_each_entry(buf_obj, &dmabuf_list, list_node) {
 
 		ret = dma_resv_lock_interruptible(buf_obj->resv, NULL);
 		if (ret)
@@ -1542,11 +1668,11 @@ static int dma_buf_debug_show(struct seq_file *s, void *unused)
 
 	seq_printf(s, "\nTotal %d objects, %zu bytes\n", count, size);
 
-	mutex_unlock(&db_list.lock);
+	mutex_unlock(&dmabuf_list_mutex);
 	return 0;
 
 error_unlock:
-	mutex_unlock(&db_list.lock);
+	mutex_unlock(&dmabuf_list_mutex);
 	return ret;
 }
 
@@ -1603,8 +1729,6 @@ static int __init dma_buf_init(void)
 	if (IS_ERR(dma_buf_mnt))
 		return PTR_ERR(dma_buf_mnt);
 
-	mutex_init(&db_list.lock);
-	INIT_LIST_HEAD(&db_list.head);
 	dma_buf_init_debugfs();
 	return 0;
 }

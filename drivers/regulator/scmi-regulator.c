@@ -257,7 +257,8 @@ static int process_scmi_regulator_of_node(struct scmi_device *sdev,
 					  struct device_node *np,
 					  struct scmi_regulator_info *rinfo)
 {
-	u32 dom, ret;
+	u32 dom;
+	int ret;
 
 	ret = of_property_read_u32(np, "reg", &dom);
 	if (ret)
@@ -349,6 +350,7 @@ static int scmi_regulator_probe(struct scmi_device *sdev)
 		/* abort on any mem issue */
 		if (ret == -ENOMEM) {
 			of_node_put(child);
+			of_node_put(np);
 			return ret;
 		}
 	}

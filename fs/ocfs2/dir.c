@@ -1882,7 +1882,7 @@ static int ocfs2_dir_foreach_blk_el(struct inode *inode,
 				i += le16_to_cpu(de->rec_len);
 			}
 			offset = i;
-			ctx->pos = (ctx->pos & ~(sb->s_blocksize - 1))
+			ctx->pos = (ctx->pos & ~((loff_t)sb->s_blocksize - 1))
 				| offset;
 			*f_version = inode_query_iversion(inode);
 		}
@@ -1979,7 +1979,7 @@ bail_nolock:
 }
 
 /*
- * NOTE: this should always be called with parent dir i_mutex taken.
+ * NOTE: this should always be called with parent dir i_rwsem taken.
  */
 int ocfs2_find_files_on_disk(const char *name,
 			     int namelen,
@@ -2026,7 +2026,7 @@ int ocfs2_lookup_ino_from_name(struct inode *dir, const char *name,
  * Return -EEXIST if the directory contains the name
  * Return -EFSCORRUPTED if found corruption
  *
- * Callers should have i_mutex + a cluster lock on dir
+ * Callers should have i_rwsem + a cluster lock on dir
  */
 int ocfs2_check_dir_for_entry(struct inode *dir,
 			      const char *name,

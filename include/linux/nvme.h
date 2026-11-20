@@ -27,6 +27,9 @@
 
 #define NVME_NSID_ALL		0xffffffff
 
+/* Special NSSR value, 'NVMe' */
+#define NVME_SUBSYS_RESET	0x4E564D65
+
 enum nvme_subsys_type {
 	NVME_NQN_DISC	= 1,		/* Discovery type target subsystem */
 	NVME_NQN_NVME	= 2,		/* NVME type target subsystem */
@@ -1619,8 +1622,8 @@ enum {
 	NVME_SC_HOST_PATH_ERROR		= 0x370,
 	NVME_SC_HOST_ABORTED_CMD	= 0x371,
 
-	NVME_SC_CRD			= 0x1800,
-	NVME_SC_DNR			= 0x4000,
+	NVME_STATUS_CRD			= 0x1800,
+	NVME_STATUS_DNR			= 0x4000,
 };
 
 struct nvme_completion {

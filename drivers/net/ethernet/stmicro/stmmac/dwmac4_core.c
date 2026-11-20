@@ -678,7 +678,7 @@ static void dwmac4_set_filter(struct mac_device_info *hw,
 	value |= GMAC_PACKET_FILTER_HPF;
 
 	/* Handle multiple unicast addresses */
-	if (netdev_uc_count(dev) > hw->unicast_filter_entries) {
+	if (netdev_uc_count(dev) + 1 > hw->unicast_filter_entries) {
 		/* Switch to promiscuous mode if more than 128 addrs
 		 * are required
 		 */
@@ -749,7 +749,16 @@ static void dwmac4_flow_ctrl(struct mac_device_info *hw, unsigned int duplex,
 static void dwmac4_ctrl_ane(void __iomem *ioaddr, bool ane, bool srgmi_ral,
 			    bool loopback)
 {
+	u32 intr_mask;
+
 	dwmac_ctrl_ane(ioaddr, GMAC_PCS_BASE, ane, srgmi_ral, loopback);
+	intr_mask = readl(ioaddr + GMAC_INT_EN);
+	if (!ane)
+		intr_mask &= ~(GMAC_INT_PCS_LINK | GMAC_INT_PCS_ANE);
+	else
+		intr_mask |= (GMAC_INT_PCS_LINK | GMAC_INT_PCS_ANE);
+
+	writel(intr_mask, ioaddr + GMAC_INT_EN);
 }
 
 static void dwmac4_rane(void __iomem *ioaddr, bool restart)

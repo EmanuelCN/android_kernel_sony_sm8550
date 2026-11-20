@@ -26,6 +26,7 @@
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 #include <linux/module.h>
+#include <linux/workqueue.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/regulator.h>
@@ -218,7 +219,7 @@ static void regulator_lock_two(struct regulator_dev *rdev1,
 			       struct regulator_dev *rdev2,
 			       struct ww_acquire_ctx *ww_ctx)
 {
-	struct regulator_dev *tmp;
+	struct regulator_dev *held, *contended;
 	int ret;
 
 	ww_acquire_init(ww_ctx, &regulator_ww_class);
@@ -227,30 +228,23 @@ static void regulator_lock_two(struct regulator_dev *rdev1,
 	ret = regulator_lock_nested(rdev1, ww_ctx);
 	WARN_ON(ret);
 	ret = regulator_lock_nested(rdev2, ww_ctx);
-	if (ret != -EDEADLOCK) {
+	if (ret != -EDEADLK) {
 		WARN_ON(ret);
 		goto exit;
 	}
 
+	held = rdev1;
+	contended = rdev2;
 	while (true) {
-		/*
-		 * Start of loop: rdev1 was locked and rdev2 was contended.
-		 * Need to unlock rdev1, slowly lock rdev2, then try rdev1
-		 * again.
-		 */
-		regulator_unlock(rdev1);
+		regulator_unlock(held);
 
-		ww_mutex_lock_slow(&rdev2->mutex, ww_ctx);
-		rdev2->ref_cnt++;
-		rdev2->mutex_owner = current;
-		ret = regulator_lock_nested(rdev1, ww_ctx);
+		ww_mutex_lock_slow(&contended->mutex, ww_ctx);
+		contended->ref_cnt++;
+		contended->mutex_owner = current;
+		swap(held, contended);
+		ret = regulator_lock_nested(contended, ww_ctx);
 
-		if (ret == -EDEADLOCK) {
-			/* More contention; swap which needs to be slow */
-			tmp = rdev1;
-			rdev1 = rdev2;
-			rdev2 = tmp;
-		} else {
+		if (ret != -EDEADLK) {
 			WARN_ON(ret);
 			break;
 		}
@@ -1205,10 +1199,98 @@ static int machine_constraints_voltage(struct regulator_dev *rdev,
 {
 	const struct regulator_ops *ops = rdev->desc->ops;
 	int ret;
+	bool apply_uV;
+
+	/*
+	 * Decide up front, from the constraints as handed to us, whether
+	 * apply_uV needs to run below. The clamping pass right after this
+	 * may rewrite constraints->min_uV/max_uV (e.g. the fixed-voltage
+	 * autoconfigure case), and we don't want that to change whether
+	 * apply_uV fires.
+	 */
+	apply_uV = rdev->constraints->apply_uV &&
+		   rdev->constraints->min_uV && rdev->constraints->max_uV;
+
+	/*
+	 * Constrain machine-level voltage specs to fit the actual range
+	 * supported by this regulator before apply_uV (below) tries to
+	 * force hardware to a value from that range: otherwise apply_uV
+	 * can target a constraint value that doesn't correspond to any
+	 * real voltage selector and fail registration outright, even
+	 * though the clamping pass would have narrowed it to a value
+	 * the regulator can actually hit.
+	 */
+	if (ops->list_voltage && rdev->desc->n_voltages) {
+		int	count = rdev->desc->n_voltages;
+		int	i;
+		int	min_uV = INT_MAX;
+		int	max_uV = INT_MIN;
+		int	cmin = constraints->min_uV;
+		int	cmax = constraints->max_uV;
+
+		/* it's safe to autoconfigure fixed-voltage supplies
+		 * and the constraints are used by list_voltage.
+		 */
+		if (count == 1 && !cmin) {
+			cmin = 1;
+			cmax = INT_MAX;
+			constraints->min_uV = cmin;
+			constraints->max_uV = cmax;
+		}
+
+		/* voltage constraints are optional */
+		if ((cmin == 0) && (cmax == 0)) {
+			/* nothing more to do */
+
+		/* else require explicit machine-level constraints */
+		} else if (cmin <= 0 || cmax <= 0 || cmax < cmin) {
+			rdev_err(rdev, "invalid voltage constraints\n");
+			return -EINVAL;
+
+		/* no need to loop voltages if range is continuous */
+		} else if (rdev->desc->continuous_voltage_range) {
+			/* nothing more to do */
+
+		} else {
+			/* initial: [cmin..cmax] valid, [min_uV..max_uV] not */
+			for (i = 0; i < count; i++) {
+				int	value;
+
+				value = ops->list_voltage(rdev, i);
+				if (value <= 0)
+					continue;
+
+				/* maybe adjust [min_uV..max_uV] */
+				if (value >= cmin && value < min_uV)
+					min_uV = value;
+				if (value <= cmax && value > max_uV)
+					max_uV = value;
+			}
+
+			/* final: [min_uV..max_uV] valid iff constraints valid */
+			if (max_uV < min_uV) {
+				rdev_err(rdev,
+					 "unsupportable voltage constraints %u-%uuV\n",
+					 min_uV, max_uV);
+				return -EINVAL;
+			}
+
+			/* use regulator's subset of machine constraints */
+			if (constraints->min_uV < min_uV) {
+				rdev_dbg(rdev, "override min_uV, %d -> %d\n",
+					 constraints->min_uV, min_uV);
+				constraints->min_uV = min_uV;
+			}
+			if (constraints->max_uV > max_uV) {
+				rdev_dbg(rdev, "override max_uV, %d -> %d\n",
+					 constraints->max_uV, max_uV);
+				constraints->max_uV = max_uV;
+			}
+		}
+	}
 
 	/* do we need to apply the constraint voltage */
-	if (rdev->constraints->apply_uV &&
-	    rdev->constraints->min_uV && rdev->constraints->max_uV) {
+	if (apply_uV) {
 		int target_min, target_max;
 		int current_uV = regulator_get_voltage_rdev(rdev);
 
@@ -1259,77 +1341,6 @@ static int machine_constraints_voltage(struct regulator_dev *rdev,
 					target_min, target_max, ERR_PTR(ret));
 				return ret;
 			}
-		}
-	}
-
-	/* constrain machine-level voltage specs to fit
-	 * the actual range supported by this regulator.
-	 */
-	if (ops->list_voltage && rdev->desc->n_voltages) {
-		int	count = rdev->desc->n_voltages;
-		int	i;
-		int	min_uV = INT_MAX;
-		int	max_uV = INT_MIN;
-		int	cmin = constraints->min_uV;
-		int	cmax = constraints->max_uV;
-
-		/* it's safe to autoconfigure fixed-voltage supplies
-		 * and the constraints are used by list_voltage.
-		 */
-		if (count == 1 && !cmin) {
-			cmin = 1;
-			cmax = INT_MAX;
-			constraints->min_uV = cmin;
-			constraints->max_uV = cmax;
-		}
-
-		/* voltage constraints are optional */
-		if ((cmin == 0) && (cmax == 0))
-			return 0;
-
-		/* else require explicit machine-level constraints */
-		if (cmin <= 0 || cmax <= 0 || cmax < cmin) {
-			rdev_err(rdev, "invalid voltage constraints\n");
-			return -EINVAL;
-		}
-
-		/* no need to loop voltages if range is continuous */
-		if (rdev->desc->continuous_voltage_range)
-			return 0;
-
-		/* initial: [cmin..cmax] valid, [min_uV..max_uV] not */
-		for (i = 0; i < count; i++) {
-			int	value;
-
-			value = ops->list_voltage(rdev, i);
-			if (value <= 0)
-				continue;
-
-			/* maybe adjust [min_uV..max_uV] */
-			if (value >= cmin && value < min_uV)
-				min_uV = value;
-			if (value <= cmax && value > max_uV)
-				max_uV = value;
-		}
-
-		/* final: [min_uV..max_uV] valid iff constraints valid */
-		if (max_uV < min_uV) {
-			rdev_err(rdev,
-				 "unsupportable voltage constraints %u-%uuV\n",
-				 min_uV, max_uV);
-			return -EINVAL;
-		}
-
-		/* use regulator's subset of machine constraints */
-		if (constraints->min_uV < min_uV) {
-			rdev_dbg(rdev, "override min_uV, %d -> %d\n",
-				 constraints->min_uV, min_uV);
-			constraints->min_uV = min_uV;
-		}
-		if (constraints->max_uV > max_uV) {
-			rdev_dbg(rdev, "override max_uV, %d -> %d\n",
-				 constraints->max_uV, max_uV);
-			constraints->max_uV = max_uV;
 		}
 	}
 
@@ -1428,6 +1439,33 @@ static int set_machine_constraints(struct regulator_dev *rdev)
 {
 	int ret = 0;
 	const struct regulator_ops *ops = rdev->desc->ops;
+
+	/*
+	 * If there is no mechanism for controlling the regulator then
+	 * flag it as always_on so we don't end up duplicating checks
+	 * for this so much.  Note that we could control the state of
+	 * a supply to control the output on a regulator that has no
+	 * direct control.
+	 */
+	if (!rdev->ena_pin && !ops->enable) {
+		if (rdev->supply_name && !rdev->supply)
+			return -EPROBE_DEFER;
+
+		if (rdev->supply)
+			rdev->constraints->always_on =
+				rdev->supply->rdev->constraints->always_on;
+		else
+			rdev->constraints->always_on = true;
+	}
+
+	/*
+	 * If we want to enable this regulator, make sure that we know the
+	 * supplying regulator.
+	 */
+	if (rdev->constraints->always_on || rdev->constraints->boot_on) {
+		if (rdev->supply_name && !rdev->supply)
+			return -EPROBE_DEFER;
+	}
 
 	ret = machine_constraints_voltage(rdev, rdev->constraints);
 	if (ret != 0)
@@ -1594,35 +1632,15 @@ static int set_machine_constraints(struct regulator_dev *rdev)
 		}
 	}
 
-	/*
-	 * If there is no mechanism for controlling the regulator then
-	 * flag it as always_on so we don't end up duplicating checks
-	 * for this so much.  Note that we could control the state of
-	 * a supply to control the output on a regulator that has no
-	 * direct control.
-	 */
-	if (!rdev->ena_pin && !ops->enable) {
-		if (rdev->supply_name && !rdev->supply)
-			return -EPROBE_DEFER;
-
-		if (rdev->supply)
-			rdev->constraints->always_on =
-				rdev->supply->rdev->constraints->always_on;
-		else
-			rdev->constraints->always_on = true;
-	}
-
 	/* If the constraints say the regulator should be on at this point
 	 * and we have control then make sure it is enabled.
 	 */
 	if (rdev->constraints->always_on || rdev->constraints->boot_on) {
-		/* If we want to enable this regulator, make sure that we know
-		 * the supplying regulator.
-		 */
-		if (rdev->supply_name && !rdev->supply)
-			return -EPROBE_DEFER;
+		bool supply_enabled = false;
 
-		/* If supplying regulator has already been enabled,
+		/* We have ensured a potential supply has been resolved above.
+		 *
+		 * If supplying regulator has already been enabled,
 		 * it's not intended to have use_count increment
 		 * when rdev is only boot-on.
 		 */
@@ -1635,11 +1653,14 @@ static int set_machine_constraints(struct regulator_dev *rdev)
 				rdev->supply = NULL;
 				return ret;
 			}
+			supply_enabled = true;
 		}
 
 		ret = _regulator_do_enable(rdev);
 		if (ret < 0 && ret != -EINVAL) {
 			rdev_err(rdev, "failed to enable: %pe\n", ERR_PTR(ret));
+			if (supply_enabled)
+				regulator_disable(rdev->supply);
 			return ret;
 		}
 
@@ -1928,6 +1949,7 @@ static void regulator_supply_alias(struct device **dev, const char **supply)
 {
 	struct regulator_supply_alias *map;
 
+	mutex_lock(&regulator_list_mutex);
 	map = regulator_find_supply_alias(*dev, *supply);
 	if (map) {
 		dev_dbg(*dev, "Mapping supply %s to %s,%s\n",
@@ -1936,6 +1958,7 @@ static void regulator_supply_alias(struct device **dev, const char **supply)
 		*dev = map->alias_dev;
 		*supply = map->alias_supply;
 	}
+	mutex_unlock(&regulator_list_mutex);
 }
 
 static int regulator_match(struct device *dev, const void *data)
@@ -2127,8 +2150,16 @@ static int regulator_resolve_supply(struct regulator_dev *rdev)
 	if (rdev->use_count) {
 		ret = regulator_enable(rdev->supply);
 		if (ret < 0) {
-			_regulator_put(rdev->supply);
+			struct regulator *supply;
+
+			regulator_lock_two(rdev, rdev->supply->rdev, &ww_ctx);
+
+			supply = rdev->supply;
 			rdev->supply = NULL;
+
+			regulator_unlock_two(rdev, supply->rdev, &ww_ctx);
+
+			regulator_put(supply);
 			goto out;
 		}
 	}
@@ -2414,22 +2445,26 @@ int regulator_register_supply_alias(struct device *dev, const char *id,
 				    const char *alias_id)
 {
 	struct regulator_supply_alias *map;
+	struct regulator_supply_alias *new_map;
 
-	map = regulator_find_supply_alias(dev, id);
-	if (map)
-		return -EEXIST;
-
-	map = kzalloc(sizeof(struct regulator_supply_alias), GFP_KERNEL);
-	if (!map)
+	new_map = kzalloc(sizeof(struct regulator_supply_alias), GFP_KERNEL);
+	if (!new_map)
 		return -ENOMEM;
 
-	map->src_dev = dev;
-	map->src_supply = id;
-	map->alias_dev = alias_dev;
-	map->alias_supply = alias_id;
+	mutex_lock(&regulator_list_mutex);
+	map = regulator_find_supply_alias(dev, id);
+	if (map) {
+		mutex_unlock(&regulator_list_mutex);
+		kfree(new_map);
+		return -EEXIST;
+	}
 
-	list_add(&map->list, &regulator_supply_alias_list);
-
+	new_map->src_dev = dev;
+	new_map->src_supply = id;
+	new_map->alias_dev = alias_dev;
+	new_map->alias_supply = alias_id;
+	list_add(&new_map->list, &regulator_supply_alias_list);
+	mutex_unlock(&regulator_list_mutex);
 	pr_info("Adding alias for supply %s,%s -> %s,%s\n",
 		id, dev_name(dev), alias_id, dev_name(alias_dev));
 
@@ -2449,11 +2484,13 @@ void regulator_unregister_supply_alias(struct device *dev, const char *id)
 {
 	struct regulator_supply_alias *map;
 
+	mutex_lock(&regulator_list_mutex);
 	map = regulator_find_supply_alias(dev, id);
 	if (map) {
 		list_del(&map->list);
 		kfree(map);
 	}
+	mutex_unlock(&regulator_list_mutex);
 }
 EXPORT_SYMBOL_GPL(regulator_unregister_supply_alias);
 
@@ -5359,6 +5396,7 @@ static void regulator_remove_coupling(struct regulator_dev *rdev)
 				 ERR_PTR(err));
 	}
 
+	rdev->coupling_desc.n_coupled = 0;
 	kfree(rdev->coupling_desc.coupled_rdevs);
 	rdev->coupling_desc.coupled_rdevs = NULL;
 }
@@ -6225,8 +6263,9 @@ static int __init regulator_init_complete(void)
 	 * we'd only do this on systems that need it, and a kernel
 	 * command line option might be useful.
 	 */
-	schedule_delayed_work(&regulator_init_complete_work,
-			      msecs_to_jiffies(30000));
+	queue_delayed_work(system_freezable_wq,
+			   &regulator_init_complete_work,
+			   msecs_to_jiffies(30000));
 
 	return 0;
 }
