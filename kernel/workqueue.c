@@ -5865,10 +5865,12 @@ void destroy_workqueue(struct workqueue_struct *wq)
 	if (wq->rescuer) {
 		struct worker *rescuer = wq->rescuer;
 
-		/* this prevents new queueing */
+		/* Exclude both detached-affinity updates and new mayday requests. */
+		mutex_lock(&wq_pool_attach_mutex);
 		raw_spin_lock_irq(&wq_mayday_lock);
 		wq->rescuer = NULL;
 		raw_spin_unlock_irq(&wq_mayday_lock);
+		mutex_unlock(&wq_pool_attach_mutex);
 
 		/* rescuer will empty maydays list before exiting */
 		kthread_stop(rescuer->task);
