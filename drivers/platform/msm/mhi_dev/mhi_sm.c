@@ -1292,8 +1292,7 @@ int mhi_dev_sm_init(struct mhi_dev *mhi_dev)
 	mhi_dma_fun_ops = &mhi_dev->mhi_hw_ctx->mhi_dma_fun_ops;
 	/*init debugfs*/
 	mhi_sm_debugfs_init();
-	mhi_sm_ctx->mhi_sm_wq = alloc_workqueue(
-				"mhi_sm_wq", WQ_HIGHPRI | WQ_UNBOUND, 1);
+	mhi_sm_ctx->mhi_sm_wq = alloc_ordered_workqueue("mhi_sm_wq", WQ_HIGHPRI);
 	if (!mhi_sm_ctx->mhi_sm_wq) {
 		MHI_SM_ERR(vf_id, "Failed to create singlethread_workqueue: sm_wq\n");
 		res = -ENOMEM;

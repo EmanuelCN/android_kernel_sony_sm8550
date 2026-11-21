@@ -1330,8 +1330,8 @@ static int usb_bam_probe(struct platform_device *pdev)
 			usb_bam_work);
 	}
 
-	ctx->usb_bam_wq = alloc_workqueue("usb_bam_wq",
-		WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
+	ctx->usb_bam_wq = alloc_ordered_workqueue("usb_bam_wq",
+		WQ_MEM_RECLAIM);
 	if (!ctx->usb_bam_wq) {
 		log_event_err("unable to create workqueue usb_bam_wq\n");
 		return -ENOMEM;

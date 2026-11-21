@@ -3071,10 +3071,8 @@ struct wireless_dev *mwifiex_add_virtual_intf(struct wiphy *wiphy,
 
 	SET_NETDEV_DEV(dev, adapter->dev);
 
-	priv->dfs_cac_workqueue = alloc_workqueue("MWIFIEX_DFS_CAC%s",
-						  WQ_HIGHPRI |
-						  WQ_MEM_RECLAIM |
-						  WQ_UNBOUND, 1, name);
+	priv->dfs_cac_workqueue = alloc_ordered_workqueue("MWIFIEX_DFS_CAC%s",
+						  WQ_HIGHPRI | WQ_MEM_RECLAIM, name);
 	if (!priv->dfs_cac_workqueue) {
 		mwifiex_dbg(adapter, ERROR, "cannot alloc DFS CAC queue\n");
 		ret = -ENOMEM;
@@ -3083,9 +3081,8 @@ struct wireless_dev *mwifiex_add_virtual_intf(struct wiphy *wiphy,
 
 	INIT_DELAYED_WORK(&priv->dfs_cac_work, mwifiex_dfs_cac_work_queue);
 
-	priv->dfs_chan_sw_workqueue = alloc_workqueue("MWIFIEX_DFS_CHSW%s",
-						      WQ_HIGHPRI | WQ_UNBOUND |
-						      WQ_MEM_RECLAIM, 1, name);
+	priv->dfs_chan_sw_workqueue = alloc_ordered_workqueue("MWIFIEX_DFS_CHSW%s",
+						      WQ_HIGHPRI | WQ_MEM_RECLAIM, name);
 	if (!priv->dfs_chan_sw_workqueue) {
 		mwifiex_dbg(adapter, ERROR, "cannot alloc DFS channel sw queue\n");
 		ret = -ENOMEM;

@@ -3475,7 +3475,7 @@ static int msm_hs_probe(struct platform_device *pdev)
 	if (IS_ERR(msm_uport->pclk))
 		msm_uport->pclk = NULL;
 
-	msm_uport->hsuart_wq = alloc_workqueue("k_hsuart", WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
+	msm_uport->hsuart_wq = alloc_ordered_workqueue("k_hsuart", WQ_MEM_RECLAIM);
 	if (!msm_uport->hsuart_wq) {
 		MSM_HS_ERR("%s(): Unable to create workqueue hsuart_wq\n", __func__);
 		ret =  -ENOMEM;

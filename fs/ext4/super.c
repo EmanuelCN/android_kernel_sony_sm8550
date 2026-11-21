@@ -4848,7 +4848,7 @@ no_journal:
 	 * concurrency isn't really necessary.  Limit it to 1.
 	 */
 	EXT4_SB(sb)->rsv_conversion_wq =
-		alloc_workqueue("ext4-rsv-conversion", WQ_MEM_RECLAIM | WQ_UNBOUND, 1);
+		alloc_ordered_workqueue("ext4-rsv-conversion", WQ_MEM_RECLAIM);
 	if (!EXT4_SB(sb)->rsv_conversion_wq) {
 		printk(KERN_ERR "EXT4-fs: failed to create workqueue\n");
 		ret = -ENOMEM;

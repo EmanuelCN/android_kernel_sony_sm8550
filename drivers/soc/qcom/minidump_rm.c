@@ -45,8 +45,7 @@ static int md_rm_init_md_table(void)
 	}
 	pr_debug("Get available slot number:%d\n", ret);
 
-	minidump_rm_table.minidump_rm_wq = alloc_workqueue(
-		"minidump_wq", WQ_HIGHPRI | WQ_UNBOUND, 1);
+	minidump_rm_table.minidump_rm_wq = alloc_ordered_workqueue("minidump_wq", WQ_HIGHPRI);
 	if (!minidump_rm_table.minidump_rm_wq) {
 		pr_err("Unable to initialize workqueue\n");
 		return -EINVAL;

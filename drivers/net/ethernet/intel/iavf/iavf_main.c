@@ -4376,7 +4376,7 @@ static int __init iavf_init_module(void)
 
 	pr_info("%s\n", iavf_copyright);
 
-	iavf_wq = alloc_workqueue("%s", WQ_UNBOUND | WQ_MEM_RECLAIM, 1,
+	iavf_wq = alloc_ordered_workqueue("%s", WQ_MEM_RECLAIM,
 				  iavf_driver_name);
 	if (!iavf_wq) {
 		pr_err("%s: Failed to create workqueue\n", iavf_driver_name);

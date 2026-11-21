@@ -397,7 +397,7 @@ int dfs_cache_init(void)
 	int rc;
 	int i;
 
-	dfscache_wq = alloc_workqueue("cifs-dfscache", WQ_FREEZABLE | WQ_UNBOUND, 1);
+	dfscache_wq = alloc_ordered_workqueue("cifs-dfscache", WQ_FREEZABLE);
 	if (!dfscache_wq)
 		return -ENOMEM;
 

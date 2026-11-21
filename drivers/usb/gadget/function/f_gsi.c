@@ -3720,8 +3720,8 @@ static int fgsi_init(void)
 	int ret;
 	dev_t dev;
 
-	ipa_usb_wq = alloc_workqueue("k_ipa_usb",
-				WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_FREEZABLE, 1);
+	ipa_usb_wq = alloc_ordered_workqueue("k_ipa_usb",
+				WQ_MEM_RECLAIM | WQ_FREEZABLE);
 	if (!ipa_usb_wq) {
 		pr_err("%s(): Failed to create workqueue\n", __func__);
 		return -ENOMEM;
