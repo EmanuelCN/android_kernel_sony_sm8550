@@ -172,7 +172,7 @@ print('')
 print('Workqueue CPU -> pool')
 print('=====================')
 
-print('[    workqueue     \     type   CPU', end='')
+print(r'[    workqueue     \     type   CPU', end='')
 for cpu in for_each_possible_cpu(prog):
     print(f' {cpu:{max_pool_id_len}}', end='')
 print(' dfl]')
