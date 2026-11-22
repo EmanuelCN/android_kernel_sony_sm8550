@@ -23,6 +23,7 @@
 #include <linux/completion.h>
 #include <linux/atomic.h>
 #include <linux/slab.h>
+#include <linux/mm.h>
 #include <linux/ktime.h>
 #include <linux/cpumask.h>
 #include <linux/sched.h>
