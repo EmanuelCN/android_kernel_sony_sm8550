@@ -8199,13 +8199,15 @@ static void wq_watchdog_timer_fn(struct timer_list *unused)
 		 * is a hotter path.
 		 */
 		if (time_after(now, ts + thresh)) {
-			scoped_guard(raw_spinlock_irqsave, &pool->lock) {
-				pool_ts = pool->last_progress_ts;
-				if (time_after(pool_ts, touched))
-					ts = pool_ts;
-				else
-					ts = touched;
-			}
+			unsigned long irq_flags;
+
+			raw_spin_lock_irqsave(&pool->lock, irq_flags);
+			pool_ts = pool->last_progress_ts;
+			if (time_after(pool_ts, touched))
+				ts = pool_ts;
+			else
+				ts = touched;
+			raw_spin_unlock_irqrestore(&pool->lock, irq_flags);
 			if (!time_after(now, ts + thresh))
 				continue;
 
