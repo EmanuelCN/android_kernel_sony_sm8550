@@ -5153,33 +5153,6 @@ static int init_worker_pool(struct worker_pool *pool)
 	return 0;
 }
 
-static void devm_workqueue_release(void *res)
-{
-	destroy_workqueue(res);
-}
-
-__printf(2, 5) struct workqueue_struct *
-devm_alloc_workqueue(struct device *dev, const char *fmt, unsigned int flags,
-		     int max_active, ...)
-{
-	struct workqueue_struct *wq;
-	va_list args;
-	int ret;
-
-	va_start(args, max_active);
-	wq = alloc_workqueue_va(fmt, flags, max_active, args);
-	va_end(args);
-	if (!wq)
-		return NULL;
-
-	ret = devm_add_action_or_reset(dev, devm_workqueue_release, wq);
-	if (ret)
-		return NULL;
-
-	return wq;
-}
-EXPORT_SYMBOL_GPL(devm_alloc_workqueue);
-
 #ifdef CONFIG_LOCKDEP
 static void wq_init_lockdep(struct workqueue_struct *wq)
 {
@@ -6262,6 +6235,33 @@ struct workqueue_struct *alloc_workqueue(const char *fmt, unsigned int flags,
 	return wq;
 }
 EXPORT_SYMBOL_GPL(alloc_workqueue);
+
+static void devm_workqueue_release(void *res)
+{
+	destroy_workqueue(res);
+}
+
+__printf(2, 5) struct workqueue_struct *
+devm_alloc_workqueue(struct device *dev, const char *fmt, unsigned int flags,
+		     int max_active, ...)
+{
+	struct workqueue_struct *wq;
+	va_list args;
+	int ret;
+
+	va_start(args, max_active);
+	wq = alloc_workqueue_va(fmt, flags, max_active, args);
+	va_end(args);
+	if (!wq)
+		return NULL;
+
+	ret = devm_add_action_or_reset(dev, devm_workqueue_release, wq);
+	if (ret)
+		return NULL;
+
+	return wq;
+}
+EXPORT_SYMBOL_GPL(devm_alloc_workqueue);
 
 static bool pwq_busy(struct pool_workqueue *pwq)
 {

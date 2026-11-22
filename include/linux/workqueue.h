@@ -225,26 +225,6 @@ struct execute_work {
 	struct work_struct work;
 };
 
-/**
- * devm_alloc_workqueue - Resource-managed allocate a workqueue
- * @dev: Device to allocate workqueue for
- * @fmt: printf format for the name of the workqueue
- * @flags: WQ_* flags
- * @max_active: max in-flight work items, 0 for default
- * @...: args for @fmt
- *
- * Resource managed workqueue, see alloc_workqueue() for details.
- *
- * The workqueue will be automatically destroyed on driver detach.  Typically
- * this should be used in drivers already relying on devm interafaces.
- *
- * RETURNS:
- * Pointer to the allocated workqueue on success, %NULL on failure.
- */
-__printf(2, 5) struct workqueue_struct *
-devm_alloc_workqueue(struct device *dev, const char *fmt, unsigned int flags,
-		     int max_active, ...);
-
 #ifdef CONFIG_LOCKDEP
 /*
  * NB: because we have to copy the lockdep_map, setting _key
@@ -530,6 +510,28 @@ void workqueue_softirq_dead(unsigned int cpu);
  */
 __printf(1, 4) struct workqueue_struct *
 alloc_workqueue(const char *fmt, unsigned int flags, int max_active, ...);
+
+struct device;
+
+/**
+ * devm_alloc_workqueue - Resource-managed allocate a workqueue
+ * @dev: Device to allocate workqueue for
+ * @fmt: printf format for the name of the workqueue
+ * @flags: WQ_* flags
+ * @max_active: max in-flight work items, 0 for default
+ * @...: args for @fmt
+ *
+ * Resource managed workqueue, see alloc_workqueue() for details.
+ *
+ * The workqueue will be automatically destroyed on driver detach.  Typically
+ * this should be used in drivers already relying on devm interfaces.
+ *
+ * RETURNS:
+ * Pointer to the allocated workqueue on success, %NULL on failure.
+ */
+__printf(2, 5) struct workqueue_struct *
+devm_alloc_workqueue(struct device *dev, const char *fmt, unsigned int flags,
+		     int max_active, ...);
 
 /**
  * alloc_ordered_workqueue - allocate an ordered workqueue
